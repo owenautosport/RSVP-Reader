@@ -8,6 +8,7 @@ hardware) later.
 from .tokenizer import tokenize, token_spans, paragraph_end_indices
 from .engine import RsvpEngine
 from .pivot import pivot_index
+from .chapters import find_chapters
 
 __all__ = [
     "tokenize",
@@ -15,4 +16,5 @@ __all__ = [
     "paragraph_end_indices",
     "RsvpEngine",
     "pivot_index",
+    "find_chapters",
 ]

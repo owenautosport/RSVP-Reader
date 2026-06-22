@@ -22,6 +22,7 @@ from tkinter import filedialog, font as tkfont
 from ..books import BookLoadError, SUPPORTED_EXTENSIONS, find_books, load_book
 from ..core import (
     RsvpEngine,
+    find_chapters,
     paragraph_end_indices,
     pivot_index,
     tokenize,
@@ -42,11 +43,15 @@ _GUIDE = "#333333"   # faint tick marks framing the pivot column
 _MENU_ITEMS = [
     MenuItem("resume", "Resume"),
     MenuItem("library", "Library"),
-    MenuItem("chapters", "Chapters", enabled=False),
+    MenuItem("chapters", "Chapters"),
     MenuItem("settings", "Settings", enabled=False),
     MenuItem("stats", "Stats", enabled=False),
     MenuItem("about", "About", enabled=False),
 ]
+
+# When a book has no detectable chapters, the Chapters screen falls back to this
+# many evenly-spaced progress markers (0%, 10%, ... ) to jump by.
+_PROGRESS_SEGMENTS = 10
 
 # Where the bundled sample book lives (repo root / samples), used by the Library.
 _SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
@@ -84,7 +89,8 @@ class RsvpApp:
         self.store = Store()
         self.nav = Navigator({
             Screen.MENU: Menu(_MENU_ITEMS),
-            Screen.LIBRARY: Menu([]),  # filled when the Library is opened
+            Screen.LIBRARY: Menu([]),   # filled when the Library is opened
+            Screen.CHAPTERS: Menu([]),  # filled when Chapters is opened
         })
         self._after_id: str | None = None
         self._show_status = True
@@ -496,6 +502,42 @@ class RsvpApp:
         self._render()
         self._update_status()
 
+    def _chapter_targets(self) -> list[tuple[str, int]]:
+        """(label, word-index) jump points: real chapters if detected, else
+        evenly-spaced progress markers."""
+        total = self.engine.total_words
+        if not total:
+            return []
+        chapters = find_chapters(self._raw_text, self._span_starts)
+        if chapters:
+            return chapters
+        last = total - 1
+        marks = []
+        for n in range(_PROGRESS_SEGMENTS):
+            pct = n * 100 // _PROGRESS_SEGMENTS
+            marks.append((f"{pct}%", round(pct / 100 * last)))
+        return marks
+
+    def _open_chapters(self) -> None:
+        targets = self._chapter_targets()
+        if not targets:
+            return
+        # Which target am I currently inside? (the last one at/before my word)
+        here = self.engine.index
+        current = 0
+        for i, (_, wi) in enumerate(targets):
+            if wi <= here:
+                current = i
+        items = []
+        for i, (label, _) in enumerate(targets):
+            mark = "• " if i == current else ""   # remember where you are
+            items.append(MenuItem(str(targets[i][1]), f"{mark}{label}"))
+        self._menu_hint = "tap to jump    ·    swipe ▶ / esc  back"
+        self.nav.open(Screen.CHAPTERS, items=items)
+        self.nav.menu.select_index(current)  # land the cursor on your spot
+        self._render()
+        self._update_status()
+
     def _menu_move(self, delta: int) -> None:
         self.nav.move(delta)
         self._render()
@@ -510,11 +552,18 @@ class RsvpApp:
             self._render()
             self._update_status()
             return
+        if self.nav.screen is Screen.CHAPTERS:
+            self.engine.seek_to(int(intent))
+            self.nav.go_reading()
+            self._pause()  # also saves the new position
+            return
         # Main menu
         if intent == "resume":
             self._close_menu()
         elif intent == "library":
             self._open_library()
+        elif intent == "chapters":
+            self._open_chapters()
         else:  # not built yet — show the roadmap honestly
             self._menu_hint = f"{intent.title()} — coming soon"
             self._update_status()
@@ -676,8 +725,8 @@ class RsvpApp:
             self.bottom_bar.config(text="")
             return
         if self.nav.in_menu:
-            title = "≡ library" if self.nav.screen is Screen.LIBRARY else "≡ menu"
-            self.top_bar.config(text=title)
+            titles = {Screen.LIBRARY: "≡ library", Screen.CHAPTERS: "≡ chapters"}
+            self.top_bar.config(text=titles.get(self.nav.screen, "≡ menu"))
             self.bottom_bar.config(text=self._menu_hint)
             return
         if self._reading:
