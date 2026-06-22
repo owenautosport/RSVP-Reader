@@ -15,6 +15,7 @@ position and settings persist locally through ``rsvp.store``.
 from __future__ import annotations
 
 import bisect
+import shutil
 import time
 import tkinter as tk
 from pathlib import Path
@@ -640,13 +641,17 @@ class RsvpApp:
         books = find_books(self._library_dirs())
         n = len(books)
         used = sum(self._safe_size(p) for p in books)
+        total = self._total_storage()
+        storage = self._format_bytes(used)
+        if total:
+            storage += f" / {self._format_bytes(total)}"  # used of capacity
         lines = [
             "A quiet, single-purpose speed reader.",
             "Fully offline — no accounts, no network.",
             "",
             ("Version", __version__),
             ("Library", f"{n} book{'' if n == 1 else 's'}"),
-            ("Storage", self._format_bytes(used)),
+            ("Storage", storage),
         ]
         self._show_info(Screen.ABOUT, "RSVP Pocket E-Reader", lines)
 
@@ -656,6 +661,17 @@ class RsvpApp:
             return path.stat().st_size
         except OSError:
             return 0
+
+    @staticmethod
+    def _total_storage() -> int:
+        """Total capacity of the storage holding the books (the SD card on the
+        device); 0 if it can't be read."""
+        for p in (_USER_BOOKS_DIR, _USER_BOOKS_DIR.parent, Path.home()):
+            try:
+                return shutil.disk_usage(p).total
+            except OSError:
+                continue
+        return 0
 
     @staticmethod
     def _format_bytes(n: int) -> str:
