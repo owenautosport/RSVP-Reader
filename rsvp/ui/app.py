@@ -15,6 +15,7 @@ position and settings persist locally through ``rsvp.store``.
 from __future__ import annotations
 
 import bisect
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
@@ -108,6 +109,8 @@ class RsvpApp:
         self._after_id: str | None = None
         self._words_since_save = 0
         self._furthest = 0  # furthest word reached; what we resume to (re-reading won't lower it)
+        self._book_seconds = 0.0       # cumulative reading time for the current book
+        self._play_started: float | None = None  # monotonic time playback began
         self._show_status = True
         self._reading = False          # is the "read normally" overlay open?
         self._placeholder = "—"
@@ -116,7 +119,7 @@ class RsvpApp:
         self._menu_hint = ""
         self._press: tuple[int, int] | None = None  # gesture start point
         self._info_title = ""          # Stats / About screen contents
-        self._info_lines: list[str] = []
+        self._info_lines: list = []    # each item: a str (centred) or (label, value)
         self._raw_text = ""            # original text, for the reading overlay
         self._span_starts: list[int] = []  # start offset of each word (for clicks)
         self._spans: list[tuple[int, int]] = []
@@ -323,6 +326,8 @@ class RsvpApp:
         self._book_path = path
         self._book_name = path.stem
         self._furthest = resume_at  # resume point is the furthest reached so far
+        self._book_seconds = self.store.get_seconds(path)
+        self._play_started = None
         self._render()
         self._update_status()
 
@@ -330,11 +335,13 @@ class RsvpApp:
 
     def _save_position(self) -> None:
         self._words_since_save = 0
+        self._fold_time()
         if self._book_path is not None and self.engine.total_words:
             # Resume to the furthest point reached, not wherever the cursor is
             # now — so going back to re-read never loses your place.
             self._furthest = max(self._furthest, self.engine.index)
             self.store.set_position(self._book_path, self._furthest)
+            self.store.set_seconds(self._book_path, self._book_seconds)
             self.store.save()
 
     def _save_settings(self) -> None:
@@ -364,9 +371,18 @@ class RsvpApp:
         if self._controls_locked() or not self.engine.total_words:
             return
         self.engine.play()
+        self._play_started = time.monotonic()
         self._cancel_pending()
         self._tick()
         self._update_status()
+
+    def _fold_time(self) -> None:
+        """Add elapsed playback time to the book's total; keep the clock running
+        only while still playing."""
+        if self._play_started is not None:
+            now = time.monotonic()
+            self._book_seconds += now - self._play_started
+            self._play_started = now if self.engine.is_playing else None
 
     def _pause(self) -> None:
         self.engine.pause()
@@ -554,7 +570,7 @@ class RsvpApp:
 
     # -- info screens (Stats / About) -----------------------------------
 
-    def _show_info(self, screen: Screen, title: str, lines: list[str]) -> None:
+    def _show_info(self, screen: Screen, title: str, lines: list) -> None:
         self._info_title = title
         self._info_lines = lines
         self._menu_hint = "tap  ·  swipe ▶ / esc   back"
@@ -563,6 +579,7 @@ class RsvpApp:
         self._update_status()
 
     def _open_stats(self) -> None:
+        self._fold_time()  # count time up to now before reporting it
         total = self.engine.total_words
         if not total:
             lines = ["No book open.", "", "Pick one from the Library."]
@@ -571,13 +588,15 @@ class RsvpApp:
             pct = int(read / total * 100)
             left = total - read
             wpm = self.engine.wpm
+            # (label, value) rows render with aligned colons; bare strings centre.
             lines = [
                 self._book_name,
                 "",
-                f"Progress     {pct}%",
-                f"Read         {read:,} of {total:,} words",
-                f"Remaining    {left:,} words",
-                f"Time left    {self._format_minutes(left / wpm)}  at {wpm} wpm",
+                ("Progress", f"{pct}%"),
+                ("Read", f"{read:,} of {total:,} words"),
+                ("Remaining", f"{left:,} words"),
+                ("Time read", self._format_duration(self._book_seconds)),
+                ("Time left", f"{self._format_minutes(left / wpm)} at {wpm} wpm"),
             ]
         self._show_info(Screen.STATS, "Stats", lines)
 
@@ -602,6 +621,17 @@ class RsvpApp:
             return f"~{mins} min"
         h, m = divmod(mins, 60)
         return f"~{h} h {m} min"
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        seconds = int(seconds)
+        if seconds < 60:
+            return f"{seconds} sec"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes} min"
+        h, m = divmod(minutes, 60)
+        return f"{h} h {m} min"
 
     def _menu_move(self, delta: int) -> None:
         self.nav.move(delta)
@@ -789,18 +819,30 @@ class RsvpApp:
                           font=self._menu_font, anchor="center")
 
     def _render_info(self) -> None:
-        """Draw a Stats/About page: a title and plain centered text lines."""
+        """Draw a Stats/About page: a title, then rows. A row that is a
+        ``(label, value)`` pair is laid out as two columns with the colon on a
+        fixed centre line so the colons align; a bare string is centred."""
         c = self.canvas
         c.delete("all")
         w = max(c.winfo_width(), 1)
         h = max(c.winfo_height(), 1)
         c.create_text(w / 2, h * 0.22, text=self._info_title, fill=_FG,
                       font=self._menu_font, anchor="center")
+        divider = w / 2          # where the colons line up
+        gap = 10
         row_h = 28
         start = h * 0.42
         for i, line in enumerate(self._info_lines):
-            c.create_text(w / 2, start + i * row_h, text=line, fill=_FG,
-                          font=self._info_font, anchor="center")
+            y = start + i * row_h
+            if isinstance(line, tuple):
+                label, value = line
+                c.create_text(divider - gap, y, text=f"{label}:", fill=_DIM,
+                              font=self._info_font, anchor="e")
+                c.create_text(divider + gap, y, text=value, fill=_FG,
+                              font=self._info_font, anchor="w")
+            else:
+                c.create_text(w / 2, y, text=line, fill=_FG,
+                              font=self._info_font, anchor="center")
 
     def _menu_index_at_y(self, y: int) -> int | None:
         height = max(self.canvas.winfo_height(), 1)

@@ -58,6 +58,9 @@ class Store:
 
     # -- per-book reading position --------------------------------------
 
+    def _entry(self, path: str | Path) -> dict:
+        return self._data.setdefault("books", {}).setdefault(book_key(path), {})
+
     def get_position(self, path: str | Path) -> int:
         entry = self._data.get("books", {}).get(book_key(path))
         if isinstance(entry, dict):
@@ -68,4 +71,16 @@ class Store:
         return 0
 
     def set_position(self, path: str | Path, index: int) -> None:
-        self._data.setdefault("books", {})[book_key(path)] = {"index": int(index)}
+        self._entry(path)["index"] = int(index)
+
+    def get_seconds(self, path: str | Path) -> float:
+        entry = self._data.get("books", {}).get(book_key(path))
+        if isinstance(entry, dict):
+            try:
+                return max(0.0, float(entry.get("seconds", 0)))
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
+
+    def set_seconds(self, path: str | Path, seconds: float) -> None:
+        self._entry(path)["seconds"] = float(seconds)
