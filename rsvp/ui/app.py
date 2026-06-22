@@ -30,6 +30,7 @@ from ..core import (
     token_spans,
 )
 from .. import __version__
+from ..battery import read_battery
 from ..nav import Button, Menu, MenuItem, Navigator, Screen, Swipe
 from ..store import Store, book_key
 
@@ -54,6 +55,22 @@ _MENU_ITEMS = [
 # Speed choices the Settings page cycles through (tap to step up, wraps round).
 # Fine 25-wpm nudges are still available while reading via the side buttons.
 _SPEED_PRESETS = (150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 1000)
+
+# iPhone-style battery indicator colours and how often to re-read the level.
+_BATT_OUTLINE = "#9a9a9a"
+_BATT_OK = "#34c759"
+_BATT_LOW = "#ff3b30"
+_BATT_POLL_MS = 60_000
+
+
+def _rounded_rect(canvas, x1, y1, x2, y2, r, **kw):
+    """A rounded rectangle on a Canvas (smoothed polygon)."""
+    pts = [
+        x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+        x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+        x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
+    ]
+    return canvas.create_polygon(pts, smooth=True, **kw)
 
 # When a book has no detectable chapters, the Chapters screen falls back to this
 # many evenly-spaced progress markers (0%, 10%, ... ) to jump by.
@@ -124,13 +141,16 @@ class RsvpApp:
         self._span_starts: list[int] = []  # start offset of each word (for clicks)
         self._spans: list[tuple[int, int]] = []
 
-        # Restore saved settings (speed, font, pivot) or fall back to defaults.
+        # Restore saved settings (speed, font, pivot, battery) or defaults.
         s = self.store.get_settings(
-            {"wpm": self.engine.wpm, "font_index": 0, "orp": True}
+            {"wpm": self.engine.wpm, "font_index": 0, "orp": True,
+             "battery_always": True}
         )
         self.engine.wpm = int(s["wpm"])
         self._font_idx = int(s["font_index"]) % len(_WORD_FONTS)
         self._orp_enabled = bool(s["orp"])
+        self._battery_always = bool(s["battery_always"])  # show on all pages vs About only
+        self._battery: tuple[int, bool] | None = None
 
         self.root = tk.Tk()
         self.root.title("RSVP Pocket E-Reader")
@@ -165,6 +185,13 @@ class RsvpApp:
         )
         self.bottom_bar.place(relx=0.5, rely=0.93, anchor="center")
 
+        # iPhone-style battery indicator, drawn on its own tiny canvas pinned to
+        # the top-right corner. Shown on every page or only on About (a setting).
+        self._batt_font = tkfont.Font(family="Helvetica", size=8, weight="bold")
+        self.battery_canvas = tk.Canvas(
+            self.root, width=44, height=20, bg=_BG, highlightthickness=0
+        )
+
         # "Read normally" overlay: the whole book as a wrapped paragraph, shown
         # on top of everything only while toggled on. Read-only; click a word to
         # set where RSVP resumes.
@@ -188,6 +215,8 @@ class RsvpApp:
         else:
             self._render()
             self._update_status()
+
+        self._poll_battery()  # first read + schedule periodic refresh
 
     # -- setup -----------------------------------------------------------
 
@@ -349,6 +378,7 @@ class RsvpApp:
             "wpm": self.engine.wpm,
             "font_index": self._font_idx,
             "orp": self._orp_enabled,
+            "battery_always": self._battery_always,
         })
         self.store.save()
 
@@ -533,10 +563,12 @@ class RsvpApp:
     # -- settings screen -------------------------------------------------
 
     def _settings_items(self) -> list[MenuItem]:
+        battery = "Always" if self._battery_always else "About only"
         return [
             MenuItem("set_speed", f"Speed:  {self.engine.wpm} wpm"),
             MenuItem("set_font", f"Font:  {_WORD_FONTS[self._font_idx]}"),
             MenuItem("set_pivot", f"Pivot (ORP):  {'On' if self._orp_enabled else 'Off'}"),
+            MenuItem("set_battery", f"Battery:  {battery}"),
         ]
 
     def _open_settings(self) -> None:
@@ -553,6 +585,9 @@ class RsvpApp:
             self._word_font.config(family=_WORD_FONTS[self._font_idx])
         elif setting_id == "set_pivot":
             self._orp_enabled = not self._orp_enabled
+        elif setting_id == "set_battery":
+            self._battery_always = not self._battery_always
+            self._update_battery()
         self._save_settings()
         # Refresh the row labels in place, keeping the cursor where it was.
         idx = self.nav.menu.index
@@ -601,16 +636,35 @@ class RsvpApp:
         self._show_info(Screen.STATS, "Stats", lines)
 
     def _open_about(self) -> None:
-        n = len(find_books(self._library_dirs()))
+        books = find_books(self._library_dirs())
+        n = len(books)
+        used = sum(self._safe_size(p) for p in books)
         lines = [
-            f"Version {__version__}",
-            "",
             "A quiet, single-purpose speed reader.",
             "Fully offline — no accounts, no network.",
             "",
-            f"Library:  {n} book{'' if n == 1 else 's'}",
+            ("Version", __version__),
+            ("Library", f"{n} book{'' if n == 1 else 's'}"),
+            ("Storage", self._format_bytes(used)),
         ]
         self._show_info(Screen.ABOUT, "RSVP Pocket E-Reader", lines)
+
+    @staticmethod
+    def _safe_size(path: Path) -> int:
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
+
+    @staticmethod
+    def _format_bytes(n: int) -> str:
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 ** 2:
+            return f"{n / 1024:.0f} KB"
+        if n < 1024 ** 3:
+            return f"{n / 1024 ** 2:.1f} MB"
+        return f"{n / 1024 ** 3:.1f} GB"
 
     @staticmethod
     def _format_minutes(mins: float) -> str:
@@ -741,6 +795,50 @@ class RsvpApp:
     # -- rendering -------------------------------------------------------
 
     def _render(self) -> None:
+        self._render_content()
+        self._update_battery()
+
+    # -- battery indicator ----------------------------------------------
+
+    def _poll_battery(self) -> None:
+        self._battery = read_battery()
+        self._update_battery()
+        self.root.after(_BATT_POLL_MS, self._poll_battery)
+
+    def _update_battery(self) -> None:
+        """Show the battery (top-right) on every page, or only on About, per the
+        setting; redraw it."""
+        show = self._battery_always or self.nav.screen is Screen.ABOUT
+        if not show:
+            self.battery_canvas.place_forget()
+            return
+        self.battery_canvas.place(relx=1.0, x=-6, y=4, anchor="ne")
+        # Canvas aliases lift/tkraise to item-raise; use Misc to stack the widget.
+        tk.Misc.tkraise(self.battery_canvas)
+        self._draw_battery()
+
+    def _draw_battery(self) -> None:
+        c = self.battery_canvas
+        c.delete("all")
+        bx, by, bw, bh = 3, 3, 28, 13           # body rectangle
+        _rounded_rect(c, bx, by, bx + bw, by + bh, 3,
+                      outline=_BATT_OUTLINE, fill="", width=1)
+        c.create_rectangle(bx + bw, by + 4, bx + bw + 2, by + bh - 4,
+                           outline="", fill=_BATT_OUTLINE)  # the little terminal
+        if self._battery is None:
+            c.create_text(bx + bw / 2, by + bh / 2, text="?",
+                          font=self._batt_font, fill=_BATT_OUTLINE)
+            return
+        percent, _charging = self._battery
+        fill_w = (bw - 4) * percent / 100
+        color = _BATT_OK if percent > 20 else _BATT_LOW
+        if fill_w > 0:
+            c.create_rectangle(bx + 2, by + 2, bx + 2 + fill_w, by + bh - 2,
+                               outline="", fill=color)
+        c.create_text(bx + bw / 2, by + bh / 2, text=str(percent),
+                      font=self._batt_font, fill="#ffffff")
+
+    def _render_content(self) -> None:
         if self.nav.in_menu:
             if self.nav.screen in (Screen.STATS, Screen.ABOUT):
                 self._render_info()
@@ -826,12 +924,12 @@ class RsvpApp:
         c.delete("all")
         w = max(c.winfo_width(), 1)
         h = max(c.winfo_height(), 1)
-        c.create_text(w / 2, h * 0.22, text=self._info_title, fill=_FG,
+        c.create_text(w / 2, h * 0.15, text=self._info_title, fill=_FG,
                       font=self._menu_font, anchor="center")
         divider = w / 2          # where the colons line up
         gap = 10
-        row_h = 28
-        start = h * 0.42
+        row_h = 23
+        start = h * 0.32
         for i, line in enumerate(self._info_lines):
             y = start + i * row_h
             if isinstance(line, tuple):
