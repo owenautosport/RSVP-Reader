@@ -558,24 +558,27 @@ class RsvpApp:
         books = find_books(self._library_dirs())
         current = book_key(self._book_path) if self._book_path else None
         current_idx = None
+        items: list[MenuItem] = []
         # Titles come from the cache (set when a book is opened) — never parse
         # files while listing, so the Library opens instantly.
         if self._remove_mode:
-            items = [MenuItem("__done__", "✓  Done")]
-            self._menu_hint = "tap a book to remove it    ·    ✓ Done / esc  back"
+            for p in books:
+                title = self.store.get_title(p) or self._cheap_title(p)
+                items.append(MenuItem(str(p), f"✕  {title}"))
+            items.append(MenuItem("__done__", "Cancel"))  # at the bottom
+            self._menu_hint = "tap a book to remove it    ·    Cancel / esc  back"
         else:
-            items = [MenuItem("__add__", "＋  Add a book…"),
-                     MenuItem("__remove__", "−  Remove a book…")]
-            self._menu_hint = ("tap a book to read    ·    "
-                               "swipe ▶ / esc  back") if books else \
-                "tap ＋ to add a book    ·    swipe ▶ / esc  back"
-        lead = len(items)
-        for i, p in enumerate(books):
-            if current is not None and book_key(p) == current:
-                current_idx = i + lead
-            title = self.store.get_title(p) or self._cheap_title(p)
-            label = f"✕  {title}" if self._remove_mode else title
-            items.append(MenuItem(str(p), label))
+            items.append(MenuItem("__add__", "＋  Add a book…"))  # at the top
+            for i, p in enumerate(books):
+                if current is not None and book_key(p) == current:
+                    current_idx = i + 1  # +1 for the Add row above
+                title = self.store.get_title(p) or self._cheap_title(p)
+                items.append(MenuItem(str(p), title))
+            if books:
+                items.append(MenuItem("__remove__", "−  Remove a book…"))  # at the bottom
+            self._menu_hint = ("tap a book to read    ·    swipe ▶ / esc  back"
+                               if books else
+                               "tap ＋ to add a book    ·    swipe ▶ / esc  back")
         self.nav.open(Screen.LIBRARY, items=items)
         if current_idx is not None and not self._remove_mode:
             self.nav.menu.select_index(current_idx)  # start on the open book
