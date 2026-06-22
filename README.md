@@ -37,7 +37,7 @@ python3 -m rsvp path/to/book.txt
 
 `[` re-reads from the start of the current sentence (press again to step back
 sentence by sentence) — RSVP otherwise removes the ability to glance back, which
-matters for comprehension. Sentence ends get a longer pause for the same reason.
+matters for comprehension.
 
 In the **read-normally** view the whole book is shown as an ordinary wrapped
 paragraph with your current word highlighted and scrolled into view — for
@@ -66,7 +66,7 @@ different controls or hardware later.
 ## Status
 
 Early MVP: plain-text books, adjustable speed, play/pause, word + sentence
-navigation (rewind to re-read), paragraph / sentence / clause pauses,
+navigation (rewind to re-read), paragraph and clause pauses,
 difficulty-aware timing (longer for long and less-common words), restart,
 optimal-recognition-point (ORP) pivot alignment (`p`), switchable fonts (`f`),
 and a read-normally paragraph view for finding your place (`tab`). EPUB/PDF

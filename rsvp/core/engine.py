@@ -27,14 +27,13 @@ MIN_WPM = 60
 MAX_WPM = 1200
 DEFAULT_WPM = 300
 
-# Extra lingering, as a multiple of the base per-word delay. The pauses at
-# paragraph and sentence boundaries are the longest: eye-tracking research shows
-# readers spend extra time integrating ("wrapping up") at those points, and a
-# clear beat there helps comprehension in RSVP.
+# Extra lingering, as a multiple of the base per-word delay. A clear breath at
+# paragraph ends helps, but a long pause at every sentence end was found to
+# interrupt the reading flow, so the sentence pause is kept modest.
 _END_OF_SENTENCE = ".!?…"
 _CLAUSE_BREAK = ",;:—–"
 _PARAGRAPH_PAUSE = 3.6  # extra breath at the end of a paragraph
-_SENTENCE_PAUSE = 2.8   # full stop / question / exclamation
+_SENTENCE_PAUSE = 2.0   # full stop / question / exclamation
 _CLAUSE_PAUSE = 1.5     # comma, semicolon, colon, dash
 
 # Per-word difficulty (applied to words without boundary punctuation). Length
