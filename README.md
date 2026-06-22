@@ -73,7 +73,7 @@ third-party dependencies and is offline by construction.
 rsvp/
   core/    UI-agnostic engine + tokenizer + ORP pivot (no GUI imports) -- reusable on any host
   nav/     UI-agnostic navigation: input model (buttons/swipes), menu, screen state machine
-  books/   loading book files into plain text (isolated parsers; .txt for now)
+  books/   loading book files into text + chapter structure (.txt, .epub; isolated parsers)
   store.py local-only persistence (reading position + settings)
   ui/      tkinter front-end: window, timer, and the device input mapping
 samples/   a short original sample book
@@ -106,8 +106,11 @@ currently are. Settings adjusts speed, font, pivot, brightness, low-power mode, 
 and where the battery shows (tap a row to change it). Stats shows your progress
 and total time read for the current book; About shows version, library, and
 storage used / capacity. An iPhone-style battery indicator sits in the top-right
-— on every page or only on About, per the setting. Still to build: EPUB/PDF
-parsing.
+— on every page or only on About, per the setting.
+
+**EPUB** books are supported alongside `.txt` (parsed with the standard library
+only — `zipfile` + `xml.etree` + `html.parser`, no dependencies), with real
+chapters read from the book's spine. PDF is the remaining format to add.
 
 Battery level (`rsvp/battery.py` via `pmset` on the Mac), screen brightness
 (window opacity standing in for the backlight), low-power mode, and the auto-off

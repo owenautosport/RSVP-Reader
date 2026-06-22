@@ -21,7 +21,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
 
-from ..books import BookLoadError, find_books, load_book
+from ..books import BookLoadError, find_books, load_book_full
 from ..core import (
     RsvpEngine,
     find_chapters,
@@ -147,6 +147,7 @@ class RsvpApp:
         self._raw_text = ""            # original text, for the reading overlay
         self._span_starts: list[int] = []  # start offset of each word (for clicks)
         self._spans: list[tuple[int, int]] = []
+        self._epub_chapters: list[tuple[str, int]] = []  # (title, word index)
 
         # Restore saved settings or defaults.
         s = self.store.get_settings(
@@ -356,7 +357,7 @@ class RsvpApp:
     def _open_path(self, path: Path) -> None:
         self._save_position()  # remember where we were in the previous book
         try:
-            text = load_book(path)
+            book = load_book_full(path)
         except BookLoadError as exc:
             self._book_name = ""
             self._book_path = None
@@ -364,15 +365,23 @@ class RsvpApp:
             self._raw_text = ""
             self._spans = []
             self._span_starts = []
+            self._epub_chapters = []
             self._placeholder = "⚠"
             self._render()
             self.top_bar.config(text=str(exc))
             self.bottom_bar.config(text=_TIPS)
             return
+        text = book.text
         self._placeholder = "—"
         self._raw_text = text
         self._spans = token_spans(text)
         self._span_starts = [s for s, _ in self._spans]
+        # Real chapters from the file's structure (EPUB) -> word indices.
+        self._epub_chapters = []
+        for title, offset in book.chapters:
+            wi = self._word_index_at_offset(offset)
+            if wi is not None:
+                self._epub_chapters.append((title, wi))
         resume_at = self.store.get_position(path)  # 0 if never opened before
         self.engine.load(
             tokenize(text),
@@ -560,6 +569,8 @@ class RsvpApp:
         total = self.engine.total_words
         if not total:
             return []
+        if self._epub_chapters:        # real structure from the EPUB
+            return self._epub_chapters
         chapters = find_chapters(self._raw_text, self._span_starts)
         if chapters:
             return chapters
