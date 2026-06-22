@@ -106,9 +106,10 @@ _PIVOT_RELX = 0.45
 _WORD_FONTS = ("Helvetica", "Georgia", "Menlo", "Verdana", "Palatino")
 
 _WPM_STEP = 25
-# Control tips framing the word: primary actions on top, the rest on the bottom.
-_TIPS_TOP = "space play/pause    ↑/↓ speed    m menu    tab read"
-_TIPS_BOTTOM = "r restart    h hide    q quit"
+# All control tips live on the bottom bar; the top line stays short (status +
+# the corner battery), so nothing collides with the battery.
+_TIPS = ("space play/pause    ↑/↓ speed    m menu    "
+         "tab read    r restart    h hide    q quit")
 
 
 class RsvpApp:
@@ -179,8 +180,7 @@ class RsvpApp:
         self.top_bar = tk.Label(
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
         )
-        # Sits a little below the very top so it clears the corner battery icon.
-        self.top_bar.place(relx=0.5, rely=0.11, anchor="center")
+        self.top_bar.place(relx=0.5, rely=0.07, anchor="center")
         self.bottom_bar = tk.Label(
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
         )
@@ -341,7 +341,7 @@ class RsvpApp:
             self._placeholder = "⚠"
             self._render()
             self.top_bar.config(text=str(exc))
-            self.bottom_bar.config(text=_TIPS_BOTTOM)
+            self.bottom_bar.config(text=_TIPS)
             return
         self._placeholder = "—"
         self._raw_text = text
@@ -813,7 +813,8 @@ class RsvpApp:
         if not show:
             self.battery_canvas.place_forget()
             return
-        self.battery_canvas.place(relx=1.0, x=-6, y=4, anchor="ne")
+        # On the same line as the top control/status bar, pinned top-right.
+        self.battery_canvas.place(relx=1.0, rely=0.07, x=-6, anchor="e")
         # Canvas aliases lift/tkraise to item-raise; use Misc to stack the widget.
         tk.Misc.tkraise(self.battery_canvas)
         self._draw_battery()
@@ -979,16 +980,14 @@ class RsvpApp:
             return
         if not self.engine.total_words:
             self.top_bar.config(text="Tap to open the menu  →  Library")
-            self.bottom_bar.config(text=_TIPS_BOTTOM)
+            self.bottom_bar.config(text=_TIPS)
             return
         state = "▶" if self.engine.is_playing else "❚❚"
         pct = int(self.engine.progress * 100)
         name = f"{self._book_name}    " if self._book_name else ""
-        # Top bar: live status + primary tips. Bottom bar: the rest.
-        self.top_bar.config(
-            text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%        {_TIPS_TOP}"
-        )
-        self.bottom_bar.config(text=_TIPS_BOTTOM)
+        # Top line: short status only (battery sits beside it). Tips on the bottom.
+        self.top_bar.config(text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%")
+        self.bottom_bar.config(text=_TIPS)
 
     # -- lifecycle -------------------------------------------------------
 
