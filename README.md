@@ -50,6 +50,6 @@ boundary is what lets the engine move to different controls or hardware later.
 
 ## Status
 
-Early MVP: plain-text books, adjustable speed, play/pause, step, restart.
-EPUB/PDF parsing, position memory, and an optimal-recognition-point alignment
-are planned next.
+Early MVP: plain-text books, adjustable speed, play/pause, step, restart, and
+dimmed peripheral context words flanking the focused word. EPUB/PDF parsing,
+position memory, and an optimal-recognition-point alignment are planned next.
