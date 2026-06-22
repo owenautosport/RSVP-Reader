@@ -33,8 +33,9 @@ _READING_HL_FG = "#111111"   # text of that highlighted word
 _PIVOT_RELX = 0.45
 
 _WPM_STEP = 25
-_HELP = ("space play/pause   ←/→ step   ↑/↓ speed   "
-         "tab read   r restart   o open   p pivot   h hide   q quit")
+# Control tips framing the word: primary actions on top, the rest on the bottom.
+_TIPS_TOP = "space play/pause    ↑/↓ speed    ←/→ step    tab read"
+_TIPS_BOTTOM = "r restart    o open    p pivot    h hide    q quit"
 
 
 class RsvpApp:
@@ -53,12 +54,12 @@ class RsvpApp:
         self.root = tk.Tk()
         self.root.title("RSVP Pocket E-Reader")
         self.root.configure(bg=_BG)
-        self.root.geometry("900x500")
-        self.root.minsize(420, 240)
+        self.root.geometry("640x340")  # compact, landscape — closer to the target screen
+        self.root.minsize(360, 200)
 
-        self._word_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
-        self._status_font = tkfont.Font(family="Helvetica", size=13)
-        self._reading_font = tkfont.Font(family="Georgia", size=18)
+        self._word_font = tkfont.Font(family="Helvetica", size=56, weight="bold")
+        self._status_font = tkfont.Font(family="Helvetica", size=11)
+        self._reading_font = tkfont.Font(family="Georgia", size=16)
 
         # A canvas (not a Label) so the pivot letter can be pinned to a fixed
         # x-position regardless of word length. Fills the window; the status
@@ -67,10 +68,15 @@ class RsvpApp:
         self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.canvas.bind("<Configure>", lambda e: self._render())
 
-        self.status_label = tk.Label(
+        # Two thin tip/status bars framing the word: top and bottom.
+        self.top_bar = tk.Label(
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
         )
-        self.status_label.place(relx=0.5, rely=0.93, anchor="center")
+        self.top_bar.place(relx=0.5, rely=0.07, anchor="center")
+        self.bottom_bar = tk.Label(
+            self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
+        )
+        self.bottom_bar.place(relx=0.5, rely=0.93, anchor="center")
 
         # "Read normally" overlay: the whole book as a wrapped paragraph, shown
         # on top of everything only while toggled on. Read-only; click a word to
@@ -140,7 +146,8 @@ class RsvpApp:
             self._span_starts = []
             self._placeholder = "⚠"
             self._render()
-            self.status_label.config(text=str(exc))
+            self.top_bar.config(text=str(exc))
+            self.bottom_bar.config(text=_TIPS_BOTTOM)
             return
         self._placeholder = "—"
         self._raw_text = text
@@ -255,7 +262,8 @@ class RsvpApp:
 
         self._highlight_reading_word()
         self.reading.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self.status_label.lift()  # keep the hint visible above the overlay
+        self.top_bar.lift()  # keep the tip bars visible above the overlay
+        self.bottom_bar.lift()
         self.reading.focus_set()
         self._update_status()
 
@@ -346,22 +354,27 @@ class RsvpApp:
 
     def _update_status(self) -> None:
         if not self._show_status:
-            self.status_label.config(text="")
+            self.top_bar.config(text="")
+            self.bottom_bar.config(text="")
             return
         if self._reading:
-            self.status_label.config(
-                text="reading — click a word to resume there   ·   tab / esc  back"
+            self.top_bar.config(text="reading view")
+            self.bottom_bar.config(
+                text="click a word to resume there    ·    tab / esc  back"
             )
             return
         if not self.engine.total_words:
-            self.status_label.config(text="Press  o  to open a book")
+            self.top_bar.config(text="Press  o  to open a book")
+            self.bottom_bar.config(text=_TIPS_BOTTOM)
             return
         state = "▶" if self.engine.is_playing else "❚❚"
         pct = int(self.engine.progress * 100)
-        name = f"{self._book_name}   " if self._book_name else ""
-        self.status_label.config(
-            text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%   ·   {_HELP}"
+        name = f"{self._book_name}    " if self._book_name else ""
+        # Top bar: live status + primary tips. Bottom bar: the rest.
+        self.top_bar.config(
+            text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%        {_TIPS_TOP}"
         )
+        self.bottom_bar.config(text=_TIPS_BOTTOM)
 
     # -- lifecycle -------------------------------------------------------
 
