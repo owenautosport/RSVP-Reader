@@ -12,10 +12,23 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .epub import parse_epub
-from .pdf import parse_pdf, PdfSupportMissing
+from .epub import parse_epub, epub_title
+from .pdf import parse_pdf, pdf_title, PdfSupportMissing
 
 SUPPORTED_EXTENSIONS = (".txt", ".epub", ".pdf")
+
+
+def book_title(path: str | Path) -> str:
+    """A display title for the book: from EPUB/PDF metadata when available,
+    otherwise the file name. Cheap enough to call while listing the Library."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    title = None
+    if suffix == ".epub":
+        title = epub_title(path)
+    elif suffix == ".pdf":
+        title = pdf_title(path)
+    return (title or path.stem).strip()[:48]
 
 
 @dataclass

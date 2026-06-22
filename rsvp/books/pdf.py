@@ -36,6 +36,17 @@ def _normalize(text: str) -> str:
     return text.strip()
 
 
+def pdf_title(path) -> str | None:
+    """The PDF's document title from its metadata, or None (incl. no pypdf)."""
+    try:
+        reader = _reader_class()(str(path))
+        meta = reader.metadata
+        title = meta.title if meta else None
+        return title.strip() if title and title.strip() else None
+    except Exception:
+        return None
+
+
 def parse_pdf(path) -> tuple[str, list[tuple[str, int]]]:
     """Return ``(text, chapters)`` where chapters is ``[(title, char_offset)]``."""
     reader = _reader_class()(str(path))

@@ -100,6 +100,19 @@ def _parse_opf(z: zipfile.ZipFile, opf_path: str) -> tuple[dict[str, str], list[
     return manifest, spine
 
 
+def epub_title(path) -> str | None:
+    """The book's title from its OPF metadata (``dc:title``), or None."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            root = ET.fromstring(z.read(_find_opf_path(z)))
+        for el in root.iter():
+            if _localname(el.tag) == "title" and (el.text or "").strip():
+                return el.text.strip()
+    except Exception:
+        return None
+    return None
+
+
 def parse_epub(path) -> tuple[str, list[tuple[str, int]]]:
     """Return ``(text, chapters)`` where chapters is ``[(title, char_offset)]``."""
     with zipfile.ZipFile(path) as z:

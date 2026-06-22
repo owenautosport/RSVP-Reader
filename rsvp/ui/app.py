@@ -21,7 +21,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
 
-from ..books import BookLoadError, find_books, load_book_full
+from ..books import BookLoadError, book_title, find_books, load_book_full
 from ..core import (
     RsvpEngine,
     find_chapters,
@@ -552,7 +552,7 @@ class RsvpApp:
             for i, p in enumerate(books):
                 if current is not None and book_key(p) == current:
                     current_idx = i  # cursor starts here; no separate marker
-                items.append(MenuItem(str(p), p.stem))
+                items.append(MenuItem(str(p), book_title(p)))  # metadata title
             self._menu_hint = "tap a book to open    ·    swipe ▶ / esc  back"
         else:
             items = [MenuItem("", "No books found", enabled=False)]
@@ -1021,19 +1021,33 @@ class RsvpApp:
 
     # -- menu rendering --------------------------------------------------
 
-    def _menu_start_y(self, height: float) -> float:
+    def _menu_layout(self, height: float) -> tuple[int, int, float]:
+        """Return ``(top, shown, start_y)`` for the visible window of a menu.
+
+        Lists longer than the screen scroll: only ``shown`` rows are drawn, and
+        the window keeps the selected item roughly centred."""
         n = len(self.nav.menu.items)
-        return height / 2 - (n - 1) / 2 * _MENU_ROW_H
+        max_rows = max(3, int((height * 0.84) // _MENU_ROW_H))
+        if n <= max_rows:
+            top, shown = 0, n
+        else:
+            shown = max_rows
+            top = max(0, min(self.nav.menu.index - max_rows // 2, n - max_rows))
+        start_y = height / 2 - (shown - 1) / 2 * _MENU_ROW_H
+        return top, shown, start_y
 
     def _render_menu(self) -> None:
         c = self.canvas
         c.delete("all")
         width = max(c.winfo_width(), 1)
         height = max(c.winfo_height(), 1)
-        start_y = self._menu_start_y(height)
         menu = self.nav.menu
-        for i, item in enumerate(menu.items):
-            y = start_y + i * _MENU_ROW_H
+        n = len(menu.items)
+        top, shown, start_y = self._menu_layout(height)
+        for row in range(shown):
+            i = top + row
+            item = menu.items[i]
+            y = start_y + row * _MENU_ROW_H
             selected = i == menu.index
             if not item.enabled:
                 color = _GUIDE
@@ -1044,6 +1058,14 @@ class RsvpApp:
             label = f"›  {item.label}" if selected else item.label
             c.create_text(width / 2, y, text=label, fill=color,
                           font=self._menu_font, anchor="center")
+        # Scroll hints when there are items off-screen above/below.
+        if top > 0:
+            c.create_text(width / 2, start_y - _MENU_ROW_H * 0.7, text="▲",
+                          fill=_DIM, font=self._status_font, anchor="center")
+        if top + shown < n:
+            c.create_text(width / 2, start_y + (shown - 1) * _MENU_ROW_H
+                          + _MENU_ROW_H * 0.7, text="▼", fill=_DIM,
+                          font=self._status_font, anchor="center")
 
     def _render_info(self) -> None:
         """Draw a Stats/About page: a title, then rows. A row that is a
@@ -1073,10 +1095,10 @@ class RsvpApp:
 
     def _menu_index_at_y(self, y: int) -> int | None:
         height = max(self.canvas.winfo_height(), 1)
-        start_y = self._menu_start_y(height)
-        i = round((y - start_y) / _MENU_ROW_H)
-        if 0 <= i < len(self.nav.menu.items):
-            return i
+        top, shown, start_y = self._menu_layout(height)
+        row = round((y - start_y) / _MENU_ROW_H)
+        if 0 <= row < shown:
+            return top + row
         return None
 
     def _update_status(self) -> None:
