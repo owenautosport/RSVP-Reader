@@ -83,18 +83,6 @@ class RsvpEngine:
             return ""
         return self._words[self._index]
 
-    def peek(self, offset: int) -> str:
-        """The word ``offset`` positions from the current one.
-
-        Negative looks back, positive looks ahead. Returns ``""`` when the
-        offset falls outside the text. Lets a host render surrounding context
-        (e.g. dimmed neighbour words) without touching the engine's internals.
-        """
-        i = self._index + offset
-        if 0 <= i < len(self._words):
-            return self._words[i]
-        return ""
-
     def advance(self) -> bool:
         """Move to the next word.
 

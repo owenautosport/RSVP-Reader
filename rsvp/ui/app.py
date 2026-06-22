@@ -20,14 +20,6 @@ _BG = "#111111"
 _FG = "#f2f2f2"
 _DIM = "#666666"
 
-# Surrounding context: how many words to show on each side of the focused word,
-# and the colour for each distance (index 0 is the focused word). Neighbours
-# fade out with distance; anything past the window edge is clipped by the canvas,
-# so the outer words appear "half shown".
-_CONTEXT_WORDS = 2
-_WORD_COLORS = ("#f2f2f2", "#5a5a5a", "#313131")
-_CONTEXT_GAP_PX = 28  # horizontal space between adjacent words
-
 _WPM_STEP = 25
 _HELP = "space play/pause   ←/→ step   ↑/↓ speed   r restart   o open   h hide   q quit"
 
@@ -47,14 +39,11 @@ class RsvpApp:
 
         self._word_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
         self._status_font = tkfont.Font(family="Helvetica", size=13)
-        self._placeholder = "—"
 
-        # A canvas (not a Label) so neighbour words can be laid out by pixel and
-        # clipped at the window edges. Fills the window; the status line sits
-        # on top of it.
-        self.canvas = tk.Canvas(self.root, bg=_BG, highlightthickness=0)
-        self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self.canvas.bind("<Configure>", lambda e: self._render())
+        self.word_label = tk.Label(
+            self.root, text="", font=self._word_font, fg=_FG, bg=_BG, anchor="center"
+        )
+        self.word_label.place(relx=0.5, rely=0.5, anchor="center")
 
         self.status_label = tk.Label(
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
@@ -105,11 +94,9 @@ class RsvpApp:
         except BookLoadError as exc:
             self._book_name = ""
             self.engine.load([])
-            self._placeholder = "⚠"
-            self._render()
+            self.word_label.config(text="⚠")
             self.status_label.config(text=str(exc))
             return
-        self._placeholder = "—"
         self.engine.load(tokenize(text))
         self._book_name = path.stem
         self._render()
@@ -186,40 +173,8 @@ class RsvpApp:
     # -- rendering -------------------------------------------------------
 
     def _render(self) -> None:
-        """Draw the focused word centered, with dimmed neighbours flowing out."""
-        c = self.canvas
-        c.delete("all")
-        width = max(c.winfo_width(), 1)
-        height = max(c.winfo_height(), 1)
-        cx, cy = width / 2, height / 2
-        font = self._word_font
-
-        if not self.engine.total_words:
-            c.create_text(cx, cy, text=self._placeholder, fill=_DIM,
-                          font=font, anchor="center")
-            return
-
-        # Focused word, pinned at the exact center.
-        current = self.engine.current_word
-        c.create_text(cx, cy, text=current, fill=_WORD_COLORS[0],
-                      font=font, anchor="center")
-        half = font.measure(current) / 2
-
-        # Walk outward in both directions, fading and clipping at the edges.
-        right = cx + half + _CONTEXT_GAP_PX
-        left = cx - half - _CONTEXT_GAP_PX
-        for dist in range(1, _CONTEXT_WORDS + 1):
-            color = _WORD_COLORS[min(dist, len(_WORD_COLORS) - 1)]
-            ahead = self.engine.peek(dist)
-            if ahead:
-                c.create_text(right, cy, text=ahead, fill=color,
-                              font=font, anchor="w")
-                right += font.measure(ahead) + _CONTEXT_GAP_PX
-            behind = self.engine.peek(-dist)
-            if behind:
-                c.create_text(left, cy, text=behind, fill=color,
-                              font=font, anchor="e")
-                left -= font.measure(behind) + _CONTEXT_GAP_PX
+        word = self.engine.current_word
+        self.word_label.config(text=word if word else "—")
 
     def _update_status(self) -> None:
         if not self._show_status:
