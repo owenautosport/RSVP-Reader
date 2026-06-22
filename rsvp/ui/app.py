@@ -19,9 +19,15 @@ import shutil
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import font as tkfont
+from tkinter import filedialog, font as tkfont
 
-from ..books import BookLoadError, book_title, find_books, load_book_full
+from ..books import (
+    BookLoadError,
+    SUPPORTED_EXTENSIONS,
+    book_title,
+    find_books,
+    load_book_full,
+)
 from ..core import (
     RsvpEngine,
     find_chapters,
@@ -547,19 +553,43 @@ class RsvpApp:
         books = find_books(self._library_dirs())
         current = book_key(self._book_path) if self._book_path else None
         current_idx = None
+        items = [MenuItem("__add__", "＋  Add a book…")]  # PC: import a file
+        for i, p in enumerate(books):
+            if current is not None and book_key(p) == current:
+                current_idx = i + 1  # +1 for the add row above
+            items.append(MenuItem(str(p), book_title(p)))  # metadata title
         if books:
-            items = []
-            for i, p in enumerate(books):
-                if current is not None and book_key(p) == current:
-                    current_idx = i  # cursor starts here; no separate marker
-                items.append(MenuItem(str(p), book_title(p)))  # metadata title
-            self._menu_hint = "tap a book to open    ·    swipe ▶ / esc  back"
+            self._menu_hint = "tap a book, or ＋ to add    ·    swipe ▶ / esc  back"
         else:
-            items = [MenuItem("", "No books found", enabled=False)]
-            self._menu_hint = f"drop .txt books in {_USER_BOOKS_DIR}"
+            self._menu_hint = "tap ＋ to add a book    ·    swipe ▶ / esc  back"
         self.nav.open(Screen.LIBRARY, items=items)
         if current_idx is not None:
             self.nav.menu.select_index(current_idx)  # start on the open book
+
+    def _add_book(self) -> None:
+        """PC convenience: pick a book file and copy it into the library."""
+        patterns = " ".join(f"*{ext}" for ext in SUPPORTED_EXTENSIONS)
+        path = filedialog.askopenfilename(
+            title="Add a book",
+            filetypes=[("Books", patterns), ("All files", "*.*")],
+        )
+        if not path:
+            self._render()  # dialog cancelled; stay on the Library
+            return
+        src = Path(path)
+        dest = src
+        try:
+            _USER_BOOKS_DIR.mkdir(parents=True, exist_ok=True)
+            target = _USER_BOOKS_DIR / src.name
+            if src.resolve() != target.resolve():
+                shutil.copy2(src, target)
+            dest = target
+        except OSError:
+            dest = src  # couldn't copy; just open it in place
+        self.nav.go_reading()
+        self._open_path(dest)  # opens (and resumes) the new book
+        self._render()
+        self._update_status()
         self._render()
         self._update_status()
 
@@ -771,6 +801,9 @@ class RsvpApp:
         if intent is None:
             return
         if self.nav.screen is Screen.LIBRARY:
+            if intent == "__add__":
+                self._add_book()
+                return
             self.nav.go_reading()
             self._open_path(Path(intent))  # opens at its saved position
             self._render()
