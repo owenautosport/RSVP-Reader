@@ -25,6 +25,23 @@ def token_spans(text: str) -> list[tuple[int, int]]:
     return [m.span() for m in _WORD_RE.finditer(text)]
 
 
+def paragraph_end_indices(text: str) -> set[int]:
+    """Return the indices of words that fall at the end of a paragraph.
+
+    A paragraph break is detected as a blank line (two or more newlines) in the
+    whitespace separating two words. Lines merely wrapped with a single newline
+    inside a paragraph are not counted. Indices line up with :func:`tokenize`,
+    so a host/engine can add an extra pause after those words.
+    """
+    spans = token_spans(text)
+    ends: set[int] = set()
+    for i in range(len(spans) - 1):
+        gap = text[spans[i][1]:spans[i + 1][0]]
+        if gap.count("\n") >= 2:
+            ends.add(i)
+    return ends
+
+
 def tokenize(text: str) -> list[str]:
     """Split ``text`` into a flat list of display words.
 

@@ -57,14 +57,17 @@ rsvp/
 samples/   a short original sample book
 ```
 
-The core engine owns no timer: it computes per-word timing (with small pauses
-after sentences, clauses, and long words) and the host drives the ticking. That
-boundary is what lets the engine move to different controls or hardware later.
+The core engine owns no timer: it computes per-word timing — longer pauses at
+paragraph ends, sentence ends, and clauses, plus a touch more time for long and
+less-common words (a small bundled common-word list is the familiarity signal) —
+and the host drives the ticking. That boundary is what lets the engine move to
+different controls or hardware later.
 
 ## Status
 
 Early MVP: plain-text books, adjustable speed, play/pause, word + sentence
-navigation (rewind to re-read), longer sentence-end pauses, restart,
+navigation (rewind to re-read), paragraph / sentence / clause pauses,
+difficulty-aware timing (longer for long and less-common words), restart,
 optimal-recognition-point (ORP) pivot alignment (`p`), switchable fonts (`f`),
 and a read-normally paragraph view for finding your place (`tab`). EPUB/PDF
 parsing and position memory are planned next.

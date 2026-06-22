@@ -20,21 +20,36 @@ that end a sentence or clause so the reader gets a natural micro-pause.
 
 from __future__ import annotations
 
+from .common_words import COMMON_WORDS
+
 # Reasonable guard rails. The UI can expose any sub-range of this.
 MIN_WPM = 60
 MAX_WPM = 1200
 DEFAULT_WPM = 300
 
-# Extra lingering, as a multiple of the base per-word delay. The sentence-end
-# pause is deliberately the longest: eye-tracking research shows readers spend
-# extra time integrating ("wrapping up") at sentence boundaries, and a clear
-# beat there helps comprehension in RSVP.
+# Extra lingering, as a multiple of the base per-word delay. The pauses at
+# paragraph and sentence boundaries are the longest: eye-tracking research shows
+# readers spend extra time integrating ("wrapping up") at those points, and a
+# clear beat there helps comprehension in RSVP.
 _END_OF_SENTENCE = ".!?…"
 _CLAUSE_BREAK = ",;:—–"
-_SENTENCE_PAUSE = 2.8  # full stop / question / exclamation
-_CLAUSE_PAUSE = 1.5    # comma, semicolon, colon, dash
-_LONG_WORD_LEN = 9     # words at least this long get a little more time
+_PARAGRAPH_PAUSE = 3.6  # extra breath at the end of a paragraph
+_SENTENCE_PAUSE = 2.8   # full stop / question / exclamation
+_CLAUSE_PAUSE = 1.5     # comma, semicolon, colon, dash
+
+# Per-word difficulty (applied to words without boundary punctuation). Length
+# and familiarity are independent signals in the reading literature; longer and
+# less common words get a touch more time, combined but capped.
+_LONG_WORD_LEN = 9      # characters; at/above this counts as a "long" word
 _LONG_WORD_PAUSE = 1.3
+_RARE_WORD_MINLEN = 5   # don't penalise short words even if uncommon
+_RARE_WORD_PAUSE = 1.2  # word not in the common-word set
+_DIFFICULTY_CAP = 1.5   # ceiling for the combined length×rarity factor
+
+
+def _normalize(word: str) -> str:
+    """Lowercase a word and strip surrounding punctuation for lookup."""
+    return word.strip(".,;:!?…—–\"'()[]{}«»“”‘’").lower()
 
 
 class RsvpEngine:
@@ -45,14 +60,27 @@ class RsvpEngine:
         self._index: int = 0
         self._playing: bool = False
         self._wpm: int = self._clamp_wpm(wpm)
+        self._paragraph_ends: frozenset[int] = frozenset()
 
     # -- content ---------------------------------------------------------
 
-    def load(self, words: list[str], *, start_index: int = 0) -> None:
-        """Replace the current text and reset position. Pauses playback."""
+    def load(
+        self,
+        words: list[str],
+        *,
+        start_index: int = 0,
+        paragraph_ends: frozenset[int] | set[int] | None = None,
+    ) -> None:
+        """Replace the current text and reset position. Pauses playback.
+
+        ``paragraph_ends`` is an optional set of word indices that fall at the
+        end of a paragraph; the engine adds a longer pause after each so the
+        reader gets a breath between paragraphs.
+        """
         self._words = list(words)
         self._index = max(0, min(start_index, max(0, len(self._words) - 1)))
         self._playing = False
+        self._paragraph_ends = frozenset(paragraph_ends or ())
 
     @property
     def words(self) -> list[str]:
@@ -208,17 +236,36 @@ class RsvpEngine:
     @property
     def current_delay_ms(self) -> int:
         """How long the current word should stay on screen, in milliseconds."""
-        return self._delay_for(self.current_word)
+        return self._delay_for_index(self._index)
 
-    def _delay_for(self, word: str) -> int:
-        base = self.base_delay_ms
-        multiplier = 1.0
-        if word:
-            last = word[-1]
-            if last in _END_OF_SENTENCE:
-                multiplier = _SENTENCE_PAUSE
-            elif last in _CLAUSE_BREAK:
-                multiplier = _CLAUSE_PAUSE
-            elif len(word) >= _LONG_WORD_LEN:
-                multiplier = _LONG_WORD_PAUSE
-        return int(base * multiplier)
+    def _delay_for_index(self, index: int) -> int:
+        if not (0 <= index < len(self._words)):
+            return int(self.base_delay_ms)
+        return int(self.base_delay_ms * self._multiplier_for(index))
+
+    def _multiplier_for(self, index: int) -> float:
+        """Boundary pauses dominate; otherwise scale by word difficulty.
+
+        Precedence: paragraph end > sentence end > clause break > difficulty
+        (length and familiarity). Boundaries are about giving the reader a beat
+        to integrate; difficulty is about the word itself, so only one applies.
+        """
+        word = self._words[index]
+        if not word:
+            return 1.0
+        if index in self._paragraph_ends:
+            return _PARAGRAPH_PAUSE
+        last = word[-1]
+        if last in _END_OF_SENTENCE:
+            return _SENTENCE_PAUSE
+        if last in _CLAUSE_BREAK:
+            return _CLAUSE_PAUSE
+        return self._difficulty_multiplier(word)
+
+    @staticmethod
+    def _difficulty_multiplier(word: str) -> float:
+        core = _normalize(word)
+        length_factor = _LONG_WORD_PAUSE if len(core) >= _LONG_WORD_LEN else 1.0
+        rare = len(core) >= _RARE_WORD_MINLEN and core not in COMMON_WORDS
+        rarity_factor = _RARE_WORD_PAUSE if rare else 1.0
+        return min(length_factor * rarity_factor, _DIFFICULTY_CAP)

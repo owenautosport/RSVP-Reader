@@ -14,7 +14,13 @@ from pathlib import Path
 from tkinter import filedialog, font as tkfont
 
 from ..books import BookLoadError, SUPPORTED_EXTENSIONS, load_book
-from ..core import RsvpEngine, pivot_index, tokenize, token_spans
+from ..core import (
+    RsvpEngine,
+    paragraph_end_indices,
+    pivot_index,
+    tokenize,
+    token_spans,
+)
 
 # Quiet, low-contrast palette so the word is the only thing that stands out.
 _BG = "#111111"
@@ -161,7 +167,9 @@ class RsvpApp:
         self._raw_text = text
         self._spans = token_spans(text)
         self._span_starts = [s for s, _ in self._spans]
-        self.engine.load(tokenize(text))
+        self.engine.load(
+            tokenize(text), paragraph_ends=paragraph_end_indices(text)
+        )
         self._book_name = path.stem
         self._render()
         self._update_status()
