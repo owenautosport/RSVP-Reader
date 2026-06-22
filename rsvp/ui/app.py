@@ -44,10 +44,14 @@ _MENU_ITEMS = [
     MenuItem("resume", "Resume"),
     MenuItem("library", "Library"),
     MenuItem("chapters", "Chapters"),
-    MenuItem("settings", "Settings", enabled=False),
+    MenuItem("settings", "Settings"),
     MenuItem("stats", "Stats", enabled=False),
     MenuItem("about", "About", enabled=False),
 ]
+
+# Speed choices the Settings page cycles through (tap to step up, wraps round).
+# Fine 25-wpm nudges are still available while reading via the side buttons.
+_SPEED_PRESETS = (150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 1000)
 
 # When a book has no detectable chapters, the Chapters screen falls back to this
 # many evenly-spaced progress markers (0%, 10%, ... ) to jump by.
@@ -96,6 +100,7 @@ class RsvpApp:
             Screen.MENU: Menu(_MENU_ITEMS),
             Screen.LIBRARY: Menu([]),   # filled when the Library is opened
             Screen.CHAPTERS: Menu([]),  # filled when Chapters is opened
+            Screen.SETTINGS: Menu([]),  # filled when Settings is opened
         })
         self._after_id: str | None = None
         self._words_since_save = 0
@@ -563,6 +568,44 @@ class RsvpApp:
         self._render()
         self._update_status()
 
+    # -- settings screen -------------------------------------------------
+
+    def _settings_items(self) -> list[MenuItem]:
+        return [
+            MenuItem("set_speed", f"Speed:  {self.engine.wpm} wpm"),
+            MenuItem("set_font", f"Font:  {_WORD_FONTS[self._font_idx]}"),
+            MenuItem("set_pivot", f"Pivot (ORP):  {'On' if self._orp_enabled else 'Off'}"),
+        ]
+
+    def _open_settings(self) -> None:
+        self._menu_hint = "tap a setting to change it    ·    swipe ▶ / esc  back"
+        self.nav.open(Screen.SETTINGS, items=self._settings_items())
+        self._render()
+        self._update_status()
+
+    def _apply_setting(self, setting_id: str) -> None:
+        if setting_id == "set_speed":
+            self.engine.wpm = self._next_speed(self.engine.wpm)
+        elif setting_id == "set_font":
+            self._font_idx = (self._font_idx + 1) % len(_WORD_FONTS)
+            self._word_font.config(family=_WORD_FONTS[self._font_idx])
+        elif setting_id == "set_pivot":
+            self._orp_enabled = not self._orp_enabled
+        self._save_settings()
+        # Refresh the row labels in place, keeping the cursor where it was.
+        idx = self.nav.menu.index
+        self.nav.menu.set_items(self._settings_items())
+        self.nav.menu.select_index(idx)
+        self._render()
+        self._update_status()
+
+    @staticmethod
+    def _next_speed(wpm: int) -> int:
+        for preset in _SPEED_PRESETS:
+            if preset > wpm:
+                return preset
+        return _SPEED_PRESETS[0]  # wrap round to the slowest
+
     def _menu_move(self, delta: int) -> None:
         self.nav.move(delta)
         self._render()
@@ -582,6 +625,9 @@ class RsvpApp:
             self.nav.go_reading()
             self._pause()  # also saves the new position
             return
+        if self.nav.screen is Screen.SETTINGS:
+            self._apply_setting(intent)
+            return
         # Main menu
         if intent == "resume":
             self._close_menu()
@@ -589,6 +635,8 @@ class RsvpApp:
             self._open_library()
         elif intent == "chapters":
             self._open_chapters()
+        elif intent == "settings":
+            self._open_settings()
         else:  # not built yet — show the roadmap honestly
             self._menu_hint = f"{intent.title()} — coming soon"
             self._update_status()
@@ -754,7 +802,11 @@ class RsvpApp:
                 pct = int(self.engine.progress * 100)
                 self.top_bar.config(text=f"{self._book_name}    ·    {pct}%")
             else:
-                titles = {Screen.LIBRARY: "≡ library", Screen.CHAPTERS: "≡ chapters"}
+                titles = {
+                    Screen.LIBRARY: "≡ library",
+                    Screen.CHAPTERS: "≡ chapters",
+                    Screen.SETTINGS: "≡ settings",
+                }
                 self.top_bar.config(text=titles.get(self.nav.screen, "≡ menu"))
             self.bottom_bar.config(text=self._menu_hint)
             return
