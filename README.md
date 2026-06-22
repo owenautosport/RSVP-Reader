@@ -102,5 +102,6 @@ to pick books from local folders, a **Chapters / progress** jump screen, and
 Drop your own `.txt` books in `~/.rsvp-reader/books/` and they appear in the
 Library. Chapters detects headings (`Chapter 4`, `# Title`, `Prologue`…) and
 falls back to progress markers (0–90%) when a book has none, marking where you
-currently are. Settings adjusts speed, font, and pivot (tap a row to change it).
-Menu sections still to build: Stats, About — plus EPUB/PDF parsing.
+currently are. Settings adjusts speed, font, and pivot (tap a row to change it). Stats shows
+your progress through the current book; About shows version and library info.
+Still to build: EPUB/PDF parsing.

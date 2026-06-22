@@ -28,6 +28,7 @@ from ..core import (
     tokenize,
     token_spans,
 )
+from .. import __version__
 from ..nav import Button, Menu, MenuItem, Navigator, Screen, Swipe
 from ..store import Store, book_key
 
@@ -45,8 +46,8 @@ _MENU_ITEMS = [
     MenuItem("library", "Library"),
     MenuItem("chapters", "Chapters"),
     MenuItem("settings", "Settings"),
-    MenuItem("stats", "Stats", enabled=False),
-    MenuItem("about", "About", enabled=False),
+    MenuItem("stats", "Stats"),
+    MenuItem("about", "About"),
 ]
 
 # Speed choices the Settings page cycles through (tap to step up, wraps round).
@@ -101,6 +102,8 @@ class RsvpApp:
             Screen.LIBRARY: Menu([]),   # filled when the Library is opened
             Screen.CHAPTERS: Menu([]),  # filled when Chapters is opened
             Screen.SETTINGS: Menu([]),  # filled when Settings is opened
+            Screen.STATS: Menu([]),     # info screen (rendered as plain lines)
+            Screen.ABOUT: Menu([]),     # info screen
         })
         self._after_id: str | None = None
         self._words_since_save = 0
@@ -112,6 +115,8 @@ class RsvpApp:
         self._book_path: Path | None = None  # current book, for saving position
         self._menu_hint = ""
         self._press: tuple[int, int] | None = None  # gesture start point
+        self._info_title = ""          # Stats / About screen contents
+        self._info_lines: list[str] = []
         self._raw_text = ""            # original text, for the reading overlay
         self._span_starts: list[int] = []  # start offset of each word (for clicks)
         self._spans: list[tuple[int, int]] = []
@@ -135,6 +140,7 @@ class RsvpApp:
         self._status_font = tkfont.Font(family="Helvetica", size=11)
         self._reading_font = tkfont.Font(family="Georgia", size=16)
         self._menu_font = tkfont.Font(family="Helvetica", size=22)
+        self._info_font = tkfont.Font(family="Helvetica", size=14)
 
         # A canvas (not a Label) so the pivot letter can be pinned to a fixed
         # x-position regardless of word length. Fills the window; the status
@@ -244,6 +250,9 @@ class RsvpApp:
         if self._reading:
             return
         if self.nav.in_menu:
+            if self.nav.screen in (Screen.STATS, Screen.ABOUT):
+                self._menu_back()  # any tap leaves an info page
+                return
             idx = self._menu_index_at_y(y)
             if idx is None:
                 return
@@ -443,11 +452,14 @@ class RsvpApp:
         self._render()
         self._update_status()
 
-    def _open_library(self) -> None:
+    def _library_dirs(self) -> list[Path]:
         dirs = [_SAMPLES_DIR, _USER_BOOKS_DIR]
         if self._book_path is not None:
             dirs.append(self._book_path.parent)
-        books = find_books(dirs)
+        return dirs
+
+    def _open_library(self) -> None:
+        books = find_books(self._library_dirs())
         current = book_key(self._book_path) if self._book_path else None
         current_idx = None
         if books:
@@ -540,11 +552,65 @@ class RsvpApp:
                 return preset
         return _SPEED_PRESETS[0]  # wrap round to the slowest
 
+    # -- info screens (Stats / About) -----------------------------------
+
+    def _show_info(self, screen: Screen, title: str, lines: list[str]) -> None:
+        self._info_title = title
+        self._info_lines = lines
+        self._menu_hint = "tap  ·  swipe ▶ / esc   back"
+        self.nav.open(screen)
+        self._render()
+        self._update_status()
+
+    def _open_stats(self) -> None:
+        total = self.engine.total_words
+        if not total:
+            lines = ["No book open.", "", "Pick one from the Library."]
+        else:
+            read = min(max(self._furthest, self.engine.index) + 1, total)
+            pct = int(read / total * 100)
+            left = total - read
+            wpm = self.engine.wpm
+            lines = [
+                self._book_name,
+                "",
+                f"Progress     {pct}%",
+                f"Read         {read:,} of {total:,} words",
+                f"Remaining    {left:,} words",
+                f"Time left    {self._format_minutes(left / wpm)}  at {wpm} wpm",
+            ]
+        self._show_info(Screen.STATS, "Stats", lines)
+
+    def _open_about(self) -> None:
+        n = len(find_books(self._library_dirs()))
+        lines = [
+            f"Version {__version__}",
+            "",
+            "A quiet, single-purpose speed reader.",
+            "Fully offline — no accounts, no network.",
+            "",
+            f"Library:  {n} book{'' if n == 1 else 's'}",
+        ]
+        self._show_info(Screen.ABOUT, "RSVP Pocket E-Reader", lines)
+
+    @staticmethod
+    def _format_minutes(mins: float) -> str:
+        if mins < 1:
+            return "under a minute"
+        mins = round(mins)
+        if mins < 60:
+            return f"~{mins} min"
+        h, m = divmod(mins, 60)
+        return f"~{h} h {m} min"
+
     def _menu_move(self, delta: int) -> None:
         self.nav.move(delta)
         self._render()
 
     def _menu_select(self) -> None:
+        if self.nav.screen in (Screen.STATS, Screen.ABOUT):
+            self._menu_back()  # the select button also leaves an info page
+            return
         intent = self.nav.select()
         if intent is None:
             return
@@ -571,9 +637,10 @@ class RsvpApp:
             self._open_chapters()
         elif intent == "settings":
             self._open_settings()
-        else:  # not built yet — show the roadmap honestly
-            self._menu_hint = f"{intent.title()} — coming soon"
-            self._update_status()
+        elif intent == "stats":
+            self._open_stats()
+        elif intent == "about":
+            self._open_about()
 
     # -- "read normally" overlay ----------------------------------------
 
@@ -645,7 +712,10 @@ class RsvpApp:
 
     def _render(self) -> None:
         if self.nav.in_menu:
-            self._render_menu()
+            if self.nav.screen in (Screen.STATS, Screen.ABOUT):
+                self._render_info()
+            else:
+                self._render_menu()
             return
         c = self.canvas
         c.delete("all")
@@ -718,6 +788,20 @@ class RsvpApp:
             c.create_text(width / 2, y, text=label, fill=color,
                           font=self._menu_font, anchor="center")
 
+    def _render_info(self) -> None:
+        """Draw a Stats/About page: a title and plain centered text lines."""
+        c = self.canvas
+        c.delete("all")
+        w = max(c.winfo_width(), 1)
+        h = max(c.winfo_height(), 1)
+        c.create_text(w / 2, h * 0.22, text=self._info_title, fill=_FG,
+                      font=self._menu_font, anchor="center")
+        row_h = 28
+        start = h * 0.42
+        for i, line in enumerate(self._info_lines):
+            c.create_text(w / 2, start + i * row_h, text=line, fill=_FG,
+                          font=self._info_font, anchor="center")
+
     def _menu_index_at_y(self, y: int) -> int | None:
         height = max(self.canvas.winfo_height(), 1)
         start_y = self._menu_start_y(height)
@@ -740,6 +824,8 @@ class RsvpApp:
                     Screen.LIBRARY: "≡ library",
                     Screen.CHAPTERS: "≡ chapters",
                     Screen.SETTINGS: "≡ settings",
+                    Screen.STATS: "≡ stats",
+                    Screen.ABOUT: "≡ about",
                 }
                 self.top_bar.config(text=titles.get(self.nav.screen, "≡ menu"))
             self.bottom_bar.config(text=self._menu_hint)

@@ -20,6 +20,8 @@ class Screen(Enum):
     LIBRARY = auto()
     CHAPTERS = auto()
     SETTINGS = auto()
+    STATS = auto()
+    ABOUT = auto()
 
 
 class Navigator:
