@@ -8,12 +8,13 @@ single ``after`` callback, and advances.
 
 from __future__ import annotations
 
+import bisect
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, font as tkfont
 
 from ..books import BookLoadError, SUPPORTED_EXTENSIONS, load_book
-from ..core import RsvpEngine, pivot_index, tokenize
+from ..core import RsvpEngine, pivot_index, tokenize, token_spans
 
 # Quiet, low-contrast palette so the word is the only thing that stands out.
 _BG = "#111111"
@@ -22,13 +23,18 @@ _DIM = "#666666"
 _PIVOT = "#e8643c"   # the one highlighted pivot letter
 _GUIDE = "#333333"   # faint tick marks framing the pivot column
 
+# "Read normally" overlay: calmer, smaller body text than the giant RSVP word.
+_READING_FG = "#c9c9c9"
+_READING_HL_BG = "#e8643c"   # background of the current word in the paragraph
+_READING_HL_FG = "#111111"   # text of that highlighted word
+
 # Where the pivot letter is pinned horizontally (fraction of window width).
 # Just left of center leaves room for the usually-longer word tail.
 _PIVOT_RELX = 0.45
 
 _WPM_STEP = 25
 _HELP = ("space play/pause   ←/→ step   ↑/↓ speed   "
-         "r restart   o open   p pivot   h hide   q quit")
+         "tab read   r restart   o open   p pivot   h hide   q quit")
 
 
 class RsvpApp:
@@ -37,8 +43,12 @@ class RsvpApp:
         self._after_id: str | None = None
         self._show_status = True
         self._orp_enabled = True
+        self._reading = False          # is the "read normally" overlay open?
         self._placeholder = "—"
         self._book_name = ""
+        self._raw_text = ""            # original text, for the reading overlay
+        self._span_starts: list[int] = []  # start offset of each word (for clicks)
+        self._spans: list[tuple[int, int]] = []
 
         self.root = tk.Tk()
         self.root.title("RSVP Pocket E-Reader")
@@ -48,6 +58,7 @@ class RsvpApp:
 
         self._word_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
         self._status_font = tkfont.Font(family="Helvetica", size=13)
+        self._reading_font = tkfont.Font(family="Georgia", size=18)
 
         # A canvas (not a Label) so the pivot letter can be pinned to a fixed
         # x-position regardless of word length. Fills the window; the status
@@ -60,6 +71,22 @@ class RsvpApp:
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
         )
         self.status_label.place(relx=0.5, rely=0.93, anchor="center")
+
+        # "Read normally" overlay: the whole book as a wrapped paragraph, shown
+        # on top of everything only while toggled on. Read-only; click a word to
+        # set where RSVP resumes.
+        self.reading = tk.Text(
+            self.root, wrap="word", bg=_BG, fg=_READING_FG, font=self._reading_font,
+            relief="flat", highlightthickness=0, padx=48, pady=44, cursor="arrow",
+            spacing1=2, spacing2=4, spacing3=10, insertontime=0,
+        )
+        self.reading.tag_configure(
+            "current", background=_READING_HL_BG, foreground=_READING_HL_FG
+        )
+        self.reading.bind("<Button-1>", self._on_reading_click)
+        self.reading.bind("<Tab>", lambda e: self._toggle_reading_view() or "break")
+        self.reading.bind("<Escape>", lambda e: self._close_reading_view() or "break")
+        self.reading.bind("<q>", lambda e: self.root.destroy())
 
         self._bind_keys()
 
@@ -81,9 +108,11 @@ class RsvpApp:
         r.bind("<r>", lambda e: self._restart())
         r.bind("<o>", lambda e: self._open_dialog())
         r.bind("<p>", lambda e: self._toggle_orp())
+        r.bind("<Tab>", lambda e: self._toggle_reading_view() or "break")
         r.bind("<h>", lambda e: self._toggle_status())
         r.bind("<q>", lambda e: self.root.destroy())
-        r.bind("<Escape>", lambda e: self.root.destroy())
+        r.bind("<Escape>",
+               lambda e: self._close_reading_view() if self._reading else self.root.destroy())
 
     # -- book loading ----------------------------------------------------
 
@@ -106,11 +135,17 @@ class RsvpApp:
         except BookLoadError as exc:
             self._book_name = ""
             self.engine.load([])
+            self._raw_text = ""
+            self._spans = []
+            self._span_starts = []
             self._placeholder = "⚠"
             self._render()
             self.status_label.config(text=str(exc))
             return
         self._placeholder = "—"
+        self._raw_text = text
+        self._spans = token_spans(text)
+        self._span_starts = [s for s, _ in self._spans]
         self.engine.load(tokenize(text))
         self._book_name = path.stem
         self._render()
@@ -119,13 +154,15 @@ class RsvpApp:
     # -- playback control ------------------------------------------------
 
     def _toggle(self) -> None:
+        if self._reading:
+            return
         if self.engine.is_playing:
             self._pause()
         else:
             self._play()
 
     def _play(self) -> None:
-        if not self.engine.total_words:
+        if self._reading or not self.engine.total_words:
             return
         self.engine.play()
         self._cancel_pending()
@@ -165,18 +202,24 @@ class RsvpApp:
     # -- manual navigation & speed --------------------------------------
 
     def _step(self, delta: int) -> None:
+        if self._reading:
+            return
         self._pause()
         self.engine.seek_to(self.engine.index + delta)
         self._render()
         self._update_status()
 
     def _restart(self) -> None:
+        if self._reading:
+            return
         self._pause()
         self.engine.restart()
         self._render()
         self._update_status()
 
     def _change_speed(self, delta: int) -> None:
+        if self._reading:
+            return
         self.engine.adjust_wpm(delta)
         self._update_status()
 
@@ -185,8 +228,73 @@ class RsvpApp:
         self._update_status()
 
     def _toggle_orp(self) -> None:
+        if self._reading:
+            return
         self._orp_enabled = not self._orp_enabled
         self._render()
+
+    # -- "read normally" overlay ----------------------------------------
+
+    def _toggle_reading_view(self) -> None:
+        if self._reading:
+            self._close_reading_view()
+        else:
+            self._open_reading_view()
+
+    def _open_reading_view(self) -> None:
+        if not self.engine.total_words:
+            return
+        self._pause()
+        self._reading = True
+
+        # Fill with the original text (paragraph breaks preserved).
+        self.reading.config(state="normal")
+        self.reading.delete("1.0", "end")
+        self.reading.insert("1.0", self._raw_text)
+        self.reading.config(state="disabled")
+
+        self._highlight_reading_word()
+        self.reading.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.status_label.lift()  # keep the hint visible above the overlay
+        self.reading.focus_set()
+        self._update_status()
+
+    def _close_reading_view(self) -> None:
+        self._reading = False
+        self.reading.place_forget()
+        self.root.focus_set()
+        self._render()
+        self._update_status()
+
+    def _highlight_reading_word(self) -> None:
+        """Tag the current word in the paragraph and scroll it into view."""
+        self.reading.tag_remove("current", "1.0", "end")
+        i = self.engine.index
+        if not (0 <= i < len(self._spans)):
+            return
+        start, end = self._spans[i]
+        start_idx = f"1.0 + {start} chars"
+        end_idx = f"1.0 + {end} chars"
+        self.reading.tag_add("current", start_idx, end_idx)
+        self.reading.see(start_idx)
+
+    def _on_reading_click(self, event: tk.Event) -> str:
+        """Clicking a word makes it the point RSVP resumes from."""
+        clicked = self.reading.index(f"@{event.x},{event.y}")
+        counted = self.reading.count("1.0", clicked, "chars")
+        offset = counted[0] if counted else 0
+        word_i = self._word_index_at_offset(offset)
+        if word_i is not None:
+            self.engine.seek_to(word_i)
+            self._highlight_reading_word()
+        return "break"  # suppress the default text cursor/selection
+
+    def _word_index_at_offset(self, offset: int) -> int | None:
+        """Map a character offset in the text to the nearest word index."""
+        if not self._span_starts:
+            return None
+        j = bisect.bisect_right(self._span_starts, offset) - 1
+        return max(0, j)
 
     # -- rendering -------------------------------------------------------
 
@@ -239,6 +347,11 @@ class RsvpApp:
     def _update_status(self) -> None:
         if not self._show_status:
             self.status_label.config(text="")
+            return
+        if self._reading:
+            self.status_label.config(
+                text="reading — click a word to resume there   ·   tab / esc  back"
+            )
             return
         if not self.engine.total_words:
             self.status_label.config(text="Press  o  to open a book")

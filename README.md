@@ -26,11 +26,17 @@ python3 -m rsvp path/to/book.txt
 | `space`   | play / pause                   |
 | `← / →`   | step back / forward one word   |
 | `↑ / ↓`   | speed up / down (25 wpm)       |
+| `tab`     | read normally (paragraph view) |
 | `r`       | restart from the beginning     |
 | `o`       | open a book                    |
 | `p`       | toggle pivot (ORP) alignment   |
 | `h`       | hide / show the status line    |
-| `q` / esc | quit                           |
+| `q` / esc | quit (esc also closes reading) |
+
+In the **read-normally** view the whole book is shown as an ordinary wrapped
+paragraph with your current word highlighted and scrolled into view — for
+finding your place or re-reading something you missed. **Click any word** to set
+where RSVP resumes, then press `tab` (or `esc`) to go back.
 
 ## Stack & layout
 
@@ -51,7 +57,7 @@ boundary is what lets the engine move to different controls or hardware later.
 
 ## Status
 
-Early MVP: plain-text books, adjustable speed, play/pause, step, restart, and
-optimal-recognition-point (ORP) pivot alignment that pins a highlighted focal
-letter in place so the eye stays still (toggle with `p`). EPUB/PDF parsing and
-position memory are planned next.
+Early MVP: plain-text books, adjustable speed, play/pause, step, restart,
+optimal-recognition-point (ORP) pivot alignment (toggle with `p`), and a
+read-normally paragraph view for finding your place (`tab`). EPUB/PDF parsing
+and position memory are planned next.

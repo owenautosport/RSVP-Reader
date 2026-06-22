@@ -5,8 +5,8 @@ tkinter front-end today, or any other host (different toolkit, embedded
 hardware) later.
 """
 
-from .tokenizer import tokenize
+from .tokenizer import tokenize, token_spans
 from .engine import RsvpEngine
 from .pivot import pivot_index
 
-__all__ = ["tokenize", "RsvpEngine", "pivot_index"]
+__all__ = ["tokenize", "token_spans", "RsvpEngine", "pivot_index"]
