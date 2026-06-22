@@ -89,8 +89,10 @@ Early MVP: plain-text books, adjustable speed, play/pause, word + sentence
 navigation (rewind to re-read), paragraph and clause pauses, difficulty-aware
 timing (longer for long and less-common words), restart, ORP pivot alignment
 (`p`), switchable fonts (`f`), a read-normally paragraph view (`tab`), a
-device-style 3-button + touch input model with a main **menu**, and **saved
-reading position + settings** per book.
+device-style 3-button + touch input model with a main **menu**, a **Library**
+to pick books from local folders, and **saved reading position + settings** per
+book.
 
-Menu sections still to build: Library, Chapters, Settings, Stats, About — plus
+Drop your own `.txt` books in `~/.rsvp-reader/books/` and they appear in the
+Library. Menu sections still to build: Chapters, Settings, Stats, About — plus
 EPUB/PDF parsing.

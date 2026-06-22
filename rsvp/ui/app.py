@@ -19,7 +19,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, font as tkfont
 
-from ..books import BookLoadError, SUPPORTED_EXTENSIONS, load_book
+from ..books import BookLoadError, SUPPORTED_EXTENSIONS, find_books, load_book
 from ..core import (
     RsvpEngine,
     paragraph_end_indices,
@@ -27,7 +27,7 @@ from ..core import (
     tokenize,
     token_spans,
 )
-from ..nav import Button, Menu, MenuItem, Navigator, Swipe
+from ..nav import Button, Menu, MenuItem, Navigator, Screen, Swipe
 from ..store import Store
 
 # Quiet, low-contrast palette so the word is the only thing that stands out.
@@ -37,16 +37,21 @@ _DIM = "#666666"
 _PIVOT = "#e8643c"   # the one highlighted pivot letter / menu selection
 _GUIDE = "#333333"   # faint tick marks framing the pivot column
 
-# Main menu: id -> intent the app acts on. Only "resume" works in this phase;
-# the rest are visible-but-dimmed so the structure is clear in the app.
+# Main menu: id -> intent the app acts on. Built sections are enabled; the rest
+# are visible-but-dimmed so the structure is clear in the app.
 _MENU_ITEMS = [
     MenuItem("resume", "Resume"),
-    MenuItem("library", "Library", enabled=False),
+    MenuItem("library", "Library"),
     MenuItem("chapters", "Chapters", enabled=False),
     MenuItem("settings", "Settings", enabled=False),
     MenuItem("stats", "Stats", enabled=False),
     MenuItem("about", "About", enabled=False),
 ]
+
+# Where the bundled sample book lives (repo root / samples), used by the Library.
+_SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
+# A user drop-folder for their own books.
+_USER_BOOKS_DIR = Path.home() / ".rsvp-reader" / "books"
 _MENU_ROW_H = 46  # pixel height of a menu row (also used for tap hit-testing)
 
 # Touch gesture thresholds (pixels): below the tap radius is a tap, past the
@@ -77,7 +82,10 @@ class RsvpApp:
     def __init__(self, book_path: str | Path | None = None) -> None:
         self.engine = RsvpEngine()
         self.store = Store()
-        self.nav = Navigator(Menu(_MENU_ITEMS))
+        self.nav = Navigator({
+            Screen.MENU: Menu(_MENU_ITEMS),
+            Screen.LIBRARY: Menu([]),  # filled when the Library is opened
+        })
         self._after_id: str | None = None
         self._show_status = True
         self._reading = False          # is the "read normally" overlay open?
@@ -230,8 +238,9 @@ class RsvpApp:
                 return
             item = self.nav.menu.items[idx]
             if not item.enabled:
-                self._menu_hint = f"{item.label} — coming soon"
-                self._update_status()
+                if self.nav.screen is Screen.MENU:
+                    self._menu_hint = f"{item.label} — coming soon"
+                    self._update_status()
                 return
             self.nav.menu.select_index(idx)
             self._render()
@@ -248,7 +257,7 @@ class RsvpApp:
             elif swipe is Swipe.DOWN:
                 self._menu_move(1)
             elif swipe is Swipe.RIGHT:
-                self._close_menu()  # swipe right = back
+                self._menu_back()  # swipe right = back one screen
         else:
             if swipe is Swipe.LEFT:
                 self._rewind_sentence()
@@ -259,7 +268,7 @@ class RsvpApp:
         if self._reading:
             self._close_reading_view()
         elif self.nav.in_menu:
-            self._close_menu()
+            self._menu_back()
         else:
             self._quit()
 
@@ -456,12 +465,34 @@ class RsvpApp:
             return
         self._pause()
         self._menu_hint = "tap an item to choose    ·    swipe ▶ / esc  back"
-        self.nav.open_menu()
+        self.nav.open(Screen.MENU)
         self._render()
         self._update_status()
 
     def _close_menu(self) -> None:
-        self.nav.close_menu()
+        """Collapse all the way back to the reading screen."""
+        self.nav.go_reading()
+        self._render()
+        self._update_status()
+
+    def _menu_back(self) -> None:
+        """Step back one screen (Library -> Menu -> Reading)."""
+        self.nav.back()
+        self._render()
+        self._update_status()
+
+    def _open_library(self) -> None:
+        dirs = [_SAMPLES_DIR, _USER_BOOKS_DIR]
+        if self._book_path is not None:
+            dirs.append(self._book_path.parent)
+        books = find_books(dirs)
+        if books:
+            items = [MenuItem(str(p), p.stem) for p in books]
+            self._menu_hint = "tap a book to open    ·    swipe ▶ / esc  back"
+        else:
+            items = [MenuItem("", "No books found", enabled=False)]
+            self._menu_hint = f"drop .txt books in {_USER_BOOKS_DIR}"
+        self.nav.open(Screen.LIBRARY, items=items)
         self._render()
         self._update_status()
 
@@ -473,8 +504,17 @@ class RsvpApp:
         intent = self.nav.select()
         if intent is None:
             return
+        if self.nav.screen is Screen.LIBRARY:
+            self.nav.go_reading()
+            self._open_path(Path(intent))  # opens at its saved position
+            self._render()
+            self._update_status()
+            return
+        # Main menu
         if intent == "resume":
             self._close_menu()
+        elif intent == "library":
+            self._open_library()
         else:  # not built yet — show the roadmap honestly
             self._menu_hint = f"{intent.title()} — coming soon"
             self._update_status()
@@ -636,7 +676,8 @@ class RsvpApp:
             self.bottom_bar.config(text="")
             return
         if self.nav.in_menu:
-            self.top_bar.config(text="≡ menu")
+            title = "≡ library" if self.nav.screen is Screen.LIBRARY else "≡ menu"
+            self.top_bar.config(text=title)
             self.bottom_bar.config(text=self._menu_hint)
             return
         if self._reading:

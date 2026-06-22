@@ -25,6 +25,11 @@ class Menu:
     def items(self) -> list[MenuItem]:
         return self._items
 
+    def set_items(self, items: list[MenuItem]) -> None:
+        """Replace the items (e.g. a freshly scanned book list) and reset."""
+        self._items = list(items)
+        self._index = 0
+
     @property
     def index(self) -> int:
         return self._index

@@ -8,6 +8,6 @@ For the MVP only plain ``.txt`` is supported, using nothing but the standard
 library so the app stays fully offline with no dependencies.
 """
 
-from .loader import load_book, SUPPORTED_EXTENSIONS, BookLoadError
+from .loader import load_book, find_books, SUPPORTED_EXTENSIONS, BookLoadError
 
-__all__ = ["load_book", "SUPPORTED_EXTENSIONS", "BookLoadError"]
+__all__ = ["load_book", "find_books", "SUPPORTED_EXTENSIONS", "BookLoadError"]

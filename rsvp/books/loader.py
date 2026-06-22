@@ -7,9 +7,27 @@ nothing else changes elsewhere in the app.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 SUPPORTED_EXTENSIONS = (".txt",)
+
+
+def find_books(directories: Iterable[str | Path]) -> list[Path]:
+    """Return supported book files found across ``directories``.
+
+    Non-recursive, de-duplicated by resolved path, sorted by display name. Used
+    by the Library screen to list what's available on local storage.
+    """
+    seen: dict[Path, Path] = {}
+    for directory in directories:
+        d = Path(directory)
+        if not d.is_dir():
+            continue
+        for entry in d.iterdir():
+            if entry.is_file() and entry.suffix.lower() in SUPPORTED_EXTENSIONS:
+                seen.setdefault(entry.resolve(), entry)
+    return sorted(seen.values(), key=lambda p: p.stem.lower())
 
 
 class BookLoadError(Exception):

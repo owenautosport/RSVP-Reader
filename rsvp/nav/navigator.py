@@ -1,12 +1,10 @@
 """The screen state machine.
 
-Tracks which screen is showing and, when in a menu, owns the menu cursor. It
-does not execute intents (open the library, change a setting) — it returns the
-selected item's id and lets the app do that, so this stays toolkit- and
-feature-agnostic.
-
-Phase 1 has just two screens (READING and MENU). Library / Settings / Chapters
-etc. become additional screens as they are built, without changing this shape.
+A small stack of screens. READING is always the base; menus/lists are pushed on
+top and popped with Back, so nesting (Reading → Menu → Library) needs no special
+cases. Each list screen is backed by a ``Menu``. The navigator never executes an
+intent (open the library, change a setting) — it returns the selected item's id
+and lets the app act, so this stays toolkit- and feature-agnostic.
 """
 
 from __future__ import annotations
@@ -19,35 +17,57 @@ from .menu import Menu
 class Screen(Enum):
     READING = auto()
     MENU = auto()
+    LIBRARY = auto()
 
 
 class Navigator:
-    def __init__(self, menu: Menu) -> None:
-        self._screen = Screen.READING
-        self.menu = menu
+    def __init__(self, menus: dict[Screen, Menu]) -> None:
+        # Menus for the list screens (everything except READING).
+        self._menus = dict(menus)
+        self._stack: list[Screen] = [Screen.READING]
 
     @property
     def screen(self) -> Screen:
-        return self._screen
+        return self._stack[-1]
 
     @property
     def in_menu(self) -> bool:
-        return self._screen == Screen.MENU
+        """True on any non-reading (list) screen — used to lock reading input."""
+        return self.screen is not Screen.READING
 
-    def open_menu(self) -> None:
-        self._screen = Screen.MENU
-        self.menu.reset()
+    @property
+    def menu(self) -> Menu | None:
+        """The Menu backing the current screen (None on READING)."""
+        return self._menus.get(self.screen)
 
-    def close_menu(self) -> None:
-        self._screen = Screen.READING
+    def open(self, screen: Screen, items: list | None = None) -> None:
+        """Push a list screen, optionally replacing its items first."""
+        menu = self._menus.get(screen)
+        if menu is None:
+            return
+        if items is not None:
+            menu.set_items(items)
+        menu.reset()
+        self._stack.append(screen)
+
+    def back(self) -> None:
+        """Pop one screen (no-op at the base reading screen)."""
+        if len(self._stack) > 1:
+            self._stack.pop()
+
+    def go_reading(self) -> None:
+        """Collapse straight back to the reading screen."""
+        self._stack = [Screen.READING]
 
     def move(self, delta: int) -> None:
-        if self.in_menu:
-            self.menu.move(delta)
+        menu = self.menu
+        if menu is not None:
+            menu.move(delta)
 
     def select(self) -> str | None:
         """Return the id of the highlighted item (None if disabled/empty)."""
-        if not self.in_menu:
+        menu = self.menu
+        if menu is None:
             return None
-        item = self.menu.current
+        item = menu.current
         return item.id if item and item.enabled else None
