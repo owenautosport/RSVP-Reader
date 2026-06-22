@@ -154,6 +154,7 @@ class RsvpApp:
         self._span_starts: list[int] = []  # start offset of each word (for clicks)
         self._spans: list[tuple[int, int]] = []
         self._epub_chapters: list[tuple[str, int]] = []  # (title, word index)
+        self._remove_mode = False      # Library: tapping a book removes it
 
         # Restore saved settings or defaults.
         s = self.store.get_settings(
@@ -396,6 +397,10 @@ class RsvpApp:
         )
         self._book_path = path
         self._book_name = path.stem
+        # Cache the display title once (parsing metadata here is fine; we just
+        # loaded the whole book) so listing the Library never parses files.
+        if not self.store.get_title(path):
+            self.store.set_title(path, book_title(path))
         self._furthest = resume_at  # resume point is the furthest reached so far
         self._book_seconds = self.store.get_seconds(path)
         self._play_started = None
@@ -553,18 +558,63 @@ class RsvpApp:
         books = find_books(self._library_dirs())
         current = book_key(self._book_path) if self._book_path else None
         current_idx = None
-        items = [MenuItem("__add__", "＋  Add a book…")]  # PC: import a file
+        # Titles come from the cache (set when a book is opened) — never parse
+        # files while listing, so the Library opens instantly.
+        if self._remove_mode:
+            items = [MenuItem("__done__", "✓  Done")]
+            self._menu_hint = "tap a book to remove it    ·    ✓ Done / esc  back"
+        else:
+            items = [MenuItem("__add__", "＋  Add a book…"),
+                     MenuItem("__remove__", "−  Remove a book…")]
+            self._menu_hint = ("tap a book to read    ·    "
+                               "swipe ▶ / esc  back") if books else \
+                "tap ＋ to add a book    ·    swipe ▶ / esc  back"
+        lead = len(items)
         for i, p in enumerate(books):
             if current is not None and book_key(p) == current:
-                current_idx = i + 1  # +1 for the add row above
-            items.append(MenuItem(str(p), book_title(p)))  # metadata title
-        if books:
-            self._menu_hint = "tap a book, or ＋ to add    ·    swipe ▶ / esc  back"
-        else:
-            self._menu_hint = "tap ＋ to add a book    ·    swipe ▶ / esc  back"
+                current_idx = i + lead
+            title = self.store.get_title(p) or self._cheap_title(p)
+            label = f"✕  {title}" if self._remove_mode else title
+            items.append(MenuItem(str(p), label))
         self.nav.open(Screen.LIBRARY, items=items)
-        if current_idx is not None:
+        if current_idx is not None and not self._remove_mode:
             self.nav.menu.select_index(current_idx)  # start on the open book
+
+    @staticmethod
+    def _cheap_title(path: Path) -> str:
+        """Title for an as-yet-unopened book: parse only small files inline so
+        the Library never stalls on a large EPUB/PDF (those use the filename
+        until opened, when the real title gets cached)."""
+        try:
+            if path.stat().st_size <= 1_500_000:
+                return book_title(path)
+        except OSError:
+            pass
+        return path.stem
+
+    def _remove_book(self, path: Path) -> None:
+        """Delete a user-added book from the library (never the bundled samples)."""
+        try:
+            in_library = path.resolve().parent == _USER_BOOKS_DIR.resolve()
+        except OSError:
+            in_library = False
+        if not in_library:
+            self._menu_hint = "built-in books can't be removed    ·    ✓ Done"
+            self._update_status()
+            return
+        try:
+            path.unlink()
+        except OSError as exc:
+            self._menu_hint = f"couldn't remove: {exc}"
+            self._update_status()
+            return
+        self.store.remove_book(path)
+        self.store.save()
+        if self._book_path and path.resolve() == self._book_path.resolve():
+            self._book_path = None  # stop saving position for the deleted book
+        self._open_library()  # refresh, staying in remove mode
+        self._menu_hint = f"removed “{path.stem}”    ·    tap another, or ✓ Done"
+        self._update_status()
 
     def _add_book(self) -> None:
         """PC convenience: pick a book file and copy it into the library."""
@@ -804,6 +854,17 @@ class RsvpApp:
             if intent == "__add__":
                 self._add_book()
                 return
+            if intent == "__remove__":
+                self._remove_mode = True
+                self._open_library()
+                return
+            if intent == "__done__":
+                self._remove_mode = False
+                self._open_library()
+                return
+            if self._remove_mode:
+                self._remove_book(Path(intent))
+                return
             self.nav.go_reading()
             self._open_path(Path(intent))  # opens at its saved position
             self._render()
@@ -821,6 +882,7 @@ class RsvpApp:
         if intent == "resume":
             self._close_menu()
         elif intent == "library":
+            self._remove_mode = False
             self._open_library()
         elif intent == "chapters":
             self._open_chapters()

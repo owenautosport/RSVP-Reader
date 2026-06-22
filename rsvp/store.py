@@ -84,3 +84,18 @@ class Store:
 
     def set_seconds(self, path: str | Path, seconds: float) -> None:
         self._entry(path)["seconds"] = float(seconds)
+
+    def get_title(self, path: str | Path) -> str | None:
+        entry = self._data.get("books", {}).get(book_key(path))
+        if isinstance(entry, dict):
+            title = entry.get("title")
+            if isinstance(title, str) and title.strip():
+                return title
+        return None
+
+    def set_title(self, path: str | Path, title: str) -> None:
+        self._entry(path)["title"] = str(title)
+
+    def remove_book(self, path: str | Path) -> None:
+        """Forget a book's saved state entirely."""
+        self._data.get("books", {}).pop(book_key(path), None)
