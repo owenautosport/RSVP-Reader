@@ -21,23 +21,37 @@ python3 -m rsvp path/to/book.txt
 
 ## Controls
 
-| Key       | Action                         |
-|-----------|--------------------------------|
-| `space`   | play / pause                   |
-| `← / →`   | step back / forward one word   |
-| `[ / ]`   | rewind / skip one sentence     |
-| `↑ / ↓`   | speed up / down (25 wpm)        |
-| `tab`     | read normally (paragraph view) |
-| `f`       | cycle the word font            |
-| `r`       | restart from the beginning     |
-| `o`       | open a book                    |
-| `p`       | toggle pivot (ORP) alignment   |
-| `h`       | hide / show the status line    |
-| `q` / esc | quit (esc also closes reading) |
+The target device has **3 physical top buttons** plus a **touchscreen**. On the
+Mac those are stood in for by keys (the buttons) and the mouse (touch), so the
+whole interaction model is testable now.
+
+**3 buttons** — context-sensitive (transport while reading, list navigation in a
+menu):
+
+| Button | Key | Reading screen | In a menu |
+|--------|-----|----------------|-----------|
+| Left   | `,` | slower         | move up   |
+| Middle | `space` | play / pause | select   |
+| Right  | `.` | faster         | move down |
+
+**Touch** (mouse on the Mac):
+
+| Gesture | Reading screen | In a menu |
+|---------|----------------|-----------|
+| tap     | open menu      | choose the tapped item |
+| swipe ◀ | rewind a sentence | — |
+| swipe ▶ | skip a sentence | back |
+| swipe ▲▼ | — | scroll the list |
+
+**Keyboard conveniences** (Mac dev): `← / →` step a word, `[ / ]` rewind / skip a
+sentence, `↑ / ↓` speed, `m` menu, `tab` read-normally, `f` font, `p` pivot,
+`r` restart, `o` open, `h` hide status, `q` / `esc` quit (esc also backs out of a
+menu or the reading view).
 
 `[` re-reads from the start of the current sentence (press again to step back
 sentence by sentence) — RSVP otherwise removes the ability to glance back, which
-matters for comprehension.
+matters for comprehension. Your **reading position, speed, font, and pivot
+setting are saved** and restored next time you open the book.
 
 In the **read-normally** view the whole book is shown as an ordinary wrapped
 paragraph with your current word highlighted and scrolled into view — for
@@ -52,10 +66,16 @@ third-party dependencies and is offline by construction.
 ```
 rsvp/
   core/    UI-agnostic engine + tokenizer + ORP pivot (no GUI imports) -- reusable on any host
+  nav/     UI-agnostic navigation: input model (buttons/swipes), menu, screen state machine
   books/   loading book files into plain text (isolated parsers; .txt for now)
-  ui/      tkinter front-end: owns the window, keyboard, and timer
+  store.py local-only persistence (reading position + settings)
+  ui/      tkinter front-end: window, timer, and the device input mapping
 samples/   a short original sample book
 ```
+
+The input model (`nav`) is deliberately toolkit-agnostic so the same menu logic
+maps onto the Mac (keys + mouse) today and the device's 3 buttons + touchscreen
+later — only the thin mapping in `ui/` changes.
 
 The core engine owns no timer: it computes per-word timing — longer pauses at
 paragraph ends, sentence ends, and clauses, plus a touch more time for long and
@@ -66,8 +86,11 @@ different controls or hardware later.
 ## Status
 
 Early MVP: plain-text books, adjustable speed, play/pause, word + sentence
-navigation (rewind to re-read), paragraph and clause pauses,
-difficulty-aware timing (longer for long and less-common words), restart,
-optimal-recognition-point (ORP) pivot alignment (`p`), switchable fonts (`f`),
-and a read-normally paragraph view for finding your place (`tab`). EPUB/PDF
-parsing and position memory are planned next.
+navigation (rewind to re-read), paragraph and clause pauses, difficulty-aware
+timing (longer for long and less-common words), restart, ORP pivot alignment
+(`p`), switchable fonts (`f`), a read-normally paragraph view (`tab`), a
+device-style 3-button + touch input model with a main **menu**, and **saved
+reading position + settings** per book.
+
+Menu sections still to build: Library, Chapters, Settings, Stats, About — plus
+EPUB/PDF parsing.
