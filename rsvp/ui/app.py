@@ -53,6 +53,11 @@ _MENU_ITEMS = [
 # many evenly-spaced progress markers (0%, 10%, ... ) to jump by.
 _PROGRESS_SEGMENTS = 10
 
+# Save the reading position every this many words while playing, so a book
+# resumes where you left off even if the app is force-quit (e.g. ⌘Q) without the
+# normal close handler running.
+_AUTOSAVE_EVERY = 20
+
 # Where the bundled sample book lives (repo root / samples), used by the Library.
 _SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
 # A user drop-folder for their own books.
@@ -93,6 +98,7 @@ class RsvpApp:
             Screen.CHAPTERS: Menu([]),  # filled when Chapters is opened
         })
         self._after_id: str | None = None
+        self._words_since_save = 0
         self._show_status = True
         self._reading = False          # is the "read normally" overlay open?
         self._placeholder = "—"
@@ -331,6 +337,7 @@ class RsvpApp:
     # -- persistence -----------------------------------------------------
 
     def _save_position(self) -> None:
+        self._words_since_save = 0
         if self._book_path is not None and self.engine.total_words:
             self.store.set_position(self._book_path, self.engine.index)
             self.store.save()
@@ -386,9 +393,13 @@ class RsvpApp:
         if not self.engine.is_playing:
             return
         if self.engine.advance():
+            self._words_since_save += 1
+            if self._words_since_save >= _AUTOSAVE_EVERY:
+                self._save_position()
             self._tick()
         else:  # reached the last word
             self.engine.pause()
+            self._save_position()
             self._render()
             self._update_status()
 
