@@ -11,13 +11,16 @@ not yet decided, so the reading/timing logic is kept separate from the UI.
 
 ## Run
 
-No installation, no dependencies — just Python 3 (with tkinter, which ships
-with the standard python.org build on macOS):
+Just Python 3 (with tkinter, which ships with the standard python.org build on
+macOS). `.txt` and `.epub` need **no third-party packages**:
 
 ```sh
 python3 -m rsvp                 # opens the bundled sample book
-python3 -m rsvp path/to/book.txt
+python3 -m rsvp path/to/book.epub
 ```
+
+Reading `.pdf` books additionally needs `pypdf` (pure Python, offline once
+installed): `pip install pypdf` (or `pip install -r requirements.txt`).
 
 ## Controls
 
@@ -73,7 +76,7 @@ third-party dependencies and is offline by construction.
 rsvp/
   core/    UI-agnostic engine + tokenizer + ORP pivot (no GUI imports) -- reusable on any host
   nav/     UI-agnostic navigation: input model (buttons/swipes), menu, screen state machine
-  books/   loading book files into text + chapter structure (.txt, .epub; isolated parsers)
+  books/   loading book files into text + chapter structure (.txt, .epub, .pdf; isolated parsers)
   store.py local-only persistence (reading position + settings)
   ui/      tkinter front-end: window, timer, and the device input mapping
 samples/   a short original sample book
@@ -110,7 +113,9 @@ storage used / capacity. An iPhone-style battery indicator sits in the top-right
 
 **EPUB** books are supported alongside `.txt` (parsed with the standard library
 only — `zipfile` + `xml.etree` + `html.parser`, no dependencies), with real
-chapters read from the book's spine. PDF is the remaining format to add.
+chapters read from the book's spine. **PDF** is also supported via the optional
+`pypdf` package (chapters from the PDF outline when present); `.txt`/`.epub`
+remain dependency-free.
 
 Battery level (`rsvp/battery.py` via `pmset` on the Mac), screen brightness
 (window opacity standing in for the backlight), low-power mode, and the auto-off

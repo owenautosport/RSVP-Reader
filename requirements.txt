@@ -1,0 +1,5 @@
+# The reader runs with NO third-party packages for .txt and .epub books.
+#
+# pypdf is OPTIONAL: it's only needed to read .pdf books. It is pure Python and
+# works fully offline once installed. Install it with:  pip install pypdf
+pypdf>=4

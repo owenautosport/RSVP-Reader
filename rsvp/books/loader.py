@@ -13,8 +13,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .epub import parse_epub
+from .pdf import parse_pdf, PdfSupportMissing
 
-SUPPORTED_EXTENSIONS = (".txt", ".epub")
+SUPPORTED_EXTENSIONS = (".txt", ".epub", ".pdf")
 
 
 @dataclass
@@ -65,6 +66,16 @@ def load_book_full(path: str | Path) -> LoadedBook:
             raise BookLoadError(f"Couldn't read EPUB: {exc}") from exc
         if not text.strip():
             raise BookLoadError("EPUB contained no readable text")
+        return LoadedBook(text, chapters)
+    if suffix == ".pdf":
+        try:
+            text, chapters = parse_pdf(path)
+        except PdfSupportMissing as exc:
+            raise BookLoadError(str(exc)) from exc
+        except Exception as exc:
+            raise BookLoadError(f"Couldn't read PDF: {exc}") from exc
+        if not text.strip():
+            raise BookLoadError("No selectable text in this PDF (scanned images?)")
         return LoadedBook(text, chapters)
 
     raise BookLoadError(
