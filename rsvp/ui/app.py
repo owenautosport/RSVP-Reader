@@ -29,7 +29,7 @@ from ..core import (
     token_spans,
 )
 from ..nav import Button, Menu, MenuItem, Navigator, Screen, Swipe
-from ..store import Store
+from ..store import Store, book_key
 
 # Quiet, low-contrast palette so the word is the only thing that stands out.
 _BG = "#111111"
@@ -503,13 +503,22 @@ class RsvpApp:
         if self._book_path is not None:
             dirs.append(self._book_path.parent)
         books = find_books(dirs)
+        current = book_key(self._book_path) if self._book_path else None
+        current_idx = None
         if books:
-            items = [MenuItem(str(p), p.stem) for p in books]
+            items = []
+            for i, p in enumerate(books):
+                here = current is not None and book_key(p) == current
+                if here:
+                    current_idx = i
+                items.append(MenuItem(str(p), f"• {p.stem}" if here else p.stem))
             self._menu_hint = "tap a book to open    ·    swipe ▶ / esc  back"
         else:
             items = [MenuItem("", "No books found", enabled=False)]
             self._menu_hint = f"drop .txt books in {_USER_BOOKS_DIR}"
         self.nav.open(Screen.LIBRARY, items=items)
+        if current_idx is not None:
+            self.nav.menu.select_index(current_idx)  # start on the open book
         self._render()
         self._update_status()
 
@@ -736,8 +745,12 @@ class RsvpApp:
             self.bottom_bar.config(text="")
             return
         if self.nav.in_menu:
-            titles = {Screen.LIBRARY: "≡ library", Screen.CHAPTERS: "≡ chapters"}
-            self.top_bar.config(text=titles.get(self.nav.screen, "≡ menu"))
+            if self.nav.screen is Screen.MENU and self._book_name:
+                pct = int(self.engine.progress * 100)
+                self.top_bar.config(text=f"{self._book_name}    ·    {pct}%")
+            else:
+                titles = {Screen.LIBRARY: "≡ library", Screen.CHAPTERS: "≡ chapters"}
+                self.top_bar.config(text=titles.get(self.nav.screen, "≡ menu"))
             self.bottom_bar.config(text=self._menu_hint)
             return
         if self._reading:
