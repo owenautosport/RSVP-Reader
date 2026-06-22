@@ -102,11 +102,14 @@ to pick books from local folders, a **Chapters / progress** jump screen, and
 Drop your own `.txt` books in `~/.rsvp-reader/books/` and they appear in the
 Library. Chapters detects headings (`Chapter 4`, `# Title`, `Prologue`…) and
 falls back to progress markers (0–90%) when a book has none, marking where you
-currently are. Settings adjusts speed, font, pivot, and where the battery shows (tap a row to
-change it). Stats shows your progress and total time read for the current book;
-About shows version, library, and storage used. An iPhone-style battery
-indicator sits in the top-right — on every page or only on About, per the
-setting. Still to build: EPUB/PDF parsing.
+currently are. Settings adjusts speed, font, pivot, brightness, low-power mode, auto-off time,
+and where the battery shows (tap a row to change it). Stats shows your progress
+and total time read for the current book; About shows version, library, and
+storage used / capacity. An iPhone-style battery indicator sits in the top-right
+— on every page or only on About, per the setting. Still to build: EPUB/PDF
+parsing.
 
-Battery level is read from the OS (via `pmset` on the Mac); that one source
-(`rsvp/battery.py`) is what the hardware port swaps for the device's gauge.
+Battery level (`rsvp/battery.py` via `pmset` on the Mac), screen brightness
+(window opacity standing in for the backlight), low-power mode, and the auto-off
+sleep timer are all dev stand-ins on macOS that the hardware port maps to the
+device's real gauge, backlight, and power controls.

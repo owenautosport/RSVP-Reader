@@ -86,7 +86,12 @@ _AUTOSAVE_EVERY = 20
 _SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
 # A user drop-folder for their own books.
 _USER_BOOKS_DIR = Path.home() / ".rsvp-reader" / "books"
-_MENU_ROW_H = 46  # pixel height of a menu row (also used for tap hit-testing)
+_MENU_ROW_H = 40  # pixel height of a menu row (also used for tap hit-testing)
+
+# Settings cycles.
+_BRIGHTNESS_PRESETS = (25, 50, 75, 100)        # percent
+_AUTOOFF_PRESETS = (0, 1, 5, 15, 30)           # minutes; 0 = never
+_AUTOOFF_CHECK_MS = 3000                        # how often to check for idle
 
 # Touch gesture thresholds (pixels): below the tap radius is a tap, past the
 # swipe minimum is a directional swipe.
@@ -143,16 +148,22 @@ class RsvpApp:
         self._span_starts: list[int] = []  # start offset of each word (for clicks)
         self._spans: list[tuple[int, int]] = []
 
-        # Restore saved settings (speed, font, pivot, battery) or defaults.
+        # Restore saved settings or defaults.
         s = self.store.get_settings(
             {"wpm": self.engine.wpm, "font_index": 0, "orp": True,
-             "battery_always": True}
+             "battery_always": True, "brightness": 100, "low_power": False,
+             "auto_off_min": 0}
         )
         self.engine.wpm = int(s["wpm"])
         self._font_idx = int(s["font_index"]) % len(_WORD_FONTS)
         self._orp_enabled = bool(s["orp"])
         self._battery_always = bool(s["battery_always"])  # show on all pages vs About only
         self._battery: tuple[int, bool] | None = None
+        self._brightness = int(s["brightness"])
+        self._low_power = bool(s["low_power"])
+        self._auto_off_min = int(s["auto_off_min"])
+        self._last_activity = time.monotonic()
+        self._asleep = False
 
         self.root = tk.Tk()
         self.root.title("RSVP Pocket E-Reader")
@@ -194,6 +205,12 @@ class RsvpApp:
             self.root, width=44, height=16, bg=_BG, highlightthickness=0
         )
 
+        # Auto-off "screen": a black layer shown after the idle timeout; any
+        # touch or key wakes it.
+        self.sleep_overlay = tk.Frame(self.root, bg="#000000", cursor="none")
+        self.sleep_overlay.bind("<Button-1>", lambda e: self._wake())
+        self.sleep_overlay.bind("<Key>", lambda e: (self._wake(), "break")[1])
+
         # "Read normally" overlay: the whole book as a wrapped paragraph, shown
         # on top of everything only while toggled on. Read-only; click a word to
         # set where RSVP resumes.
@@ -218,7 +235,9 @@ class RsvpApp:
             self._render()
             self._update_status()
 
-        self._poll_battery()  # first read + schedule periodic refresh
+        self._apply_brightness()
+        self._poll_battery()    # first read + schedule periodic refresh
+        self._check_auto_off()  # schedule the idle check
 
     # -- setup -----------------------------------------------------------
 
@@ -246,6 +265,8 @@ class RsvpApp:
     # -- input dispatch (buttons + touch, context-sensitive) ------------
 
     def _on_button(self, btn: Button) -> None:
+        if self._note_activity():  # first press just wakes from auto-off
+            return
         if self._reading:  # the paragraph overlay owns input while open
             return
         if self.nav.in_menu:
@@ -281,6 +302,8 @@ class RsvpApp:
                 self._on_swipe(Swipe.DOWN if dy > 0 else Swipe.UP)
 
     def _on_tap(self, x: int, y: int) -> None:
+        if self._note_activity():
+            return
         if self._reading:
             return
         if self.nav.in_menu:
@@ -303,6 +326,8 @@ class RsvpApp:
             self._open_menu()  # tap the word to step out into the menu
 
     def _on_swipe(self, swipe: Swipe) -> None:
+        if self._note_activity():
+            return
         if self._reading:
             return
         if self.nav.in_menu:
@@ -381,6 +406,9 @@ class RsvpApp:
             "font_index": self._font_idx,
             "orp": self._orp_enabled,
             "battery_always": self._battery_always,
+            "brightness": self._brightness,
+            "low_power": self._low_power,
+            "auto_off_min": self._auto_off_min,
         })
         self.store.save()
 
@@ -570,8 +598,14 @@ class RsvpApp:
             MenuItem("set_speed", f"Speed:  {self.engine.wpm} wpm"),
             MenuItem("set_font", f"Font:  {_WORD_FONTS[self._font_idx]}"),
             MenuItem("set_pivot", f"Pivot (ORP):  {'On' if self._orp_enabled else 'Off'}"),
+            MenuItem("set_brightness", f"Brightness:  {self._brightness}%"),
+            MenuItem("set_lowpower", f"Low power:  {'On' if self._low_power else 'Off'}"),
+            MenuItem("set_autooff", f"Auto-off:  {self._format_autooff()}"),
             MenuItem("set_battery", f"Battery:  {battery}"),
         ]
+
+    def _format_autooff(self) -> str:
+        return "Never" if not self._auto_off_min else f"{self._auto_off_min} min"
 
     def _open_settings(self) -> None:
         self._menu_hint = "tap a setting to change it    ·    swipe ▶ / esc  back"
@@ -587,6 +621,15 @@ class RsvpApp:
             self._word_font.config(family=_WORD_FONTS[self._font_idx])
         elif setting_id == "set_pivot":
             self._orp_enabled = not self._orp_enabled
+        elif setting_id == "set_brightness":
+            self._brightness = self._next_in(_BRIGHTNESS_PRESETS, self._brightness)
+            self._apply_brightness()
+        elif setting_id == "set_lowpower":
+            self._low_power = not self._low_power
+            self._apply_brightness()  # low power dims a little; slower poll next cycle
+        elif setting_id == "set_autooff":
+            self._auto_off_min = self._next_in(_AUTOOFF_PRESETS, self._auto_off_min)
+            self._last_activity = time.monotonic()
         elif setting_id == "set_battery":
             self._battery_always = not self._battery_always
             self._update_battery()
@@ -646,8 +689,9 @@ class RsvpApp:
         if total:
             storage += f" / {self._format_bytes(total)}"  # used of capacity
         lines = [
-            "A quiet, single-purpose speed reader.",
-            "Fully offline — no accounts, no network.",
+            "Flashes a book one word at a time at a speed",
+            "you choose, so your eyes stay still and you",
+            "read faster with less effort. Fully offline.",
             "",
             ("Version", __version__),
             ("Library", f"{n} book{'' if n == 1 else 's'}"),
@@ -820,7 +864,9 @@ class RsvpApp:
     def _poll_battery(self) -> None:
         self._battery = read_battery()
         self._update_battery()
-        self.root.after(_BATT_POLL_MS, self._poll_battery)
+        # Low power mode reads the battery far less often to save energy.
+        interval = _BATT_POLL_MS * (5 if self._low_power else 1)
+        self.root.after(interval, self._poll_battery)
 
     def _update_battery(self) -> None:
         """Show the battery (top-right) on every page, or only on About, per the
@@ -855,6 +901,60 @@ class RsvpApp:
                                outline="", fill=color)
         c.create_text(bx + bw / 2, by + bh / 2, text=str(percent),
                       font=self._batt_font, fill="#ffffff")
+
+    # -- power: brightness, low power, auto-off -------------------------
+
+    @staticmethod
+    def _next_in(presets: tuple, value: int) -> int:
+        """Next value in a cycle (wraps); falls back to the first."""
+        try:
+            i = presets.index(value)
+        except ValueError:
+            return presets[0]
+        return presets[(i + 1) % len(presets)]
+
+    def _apply_brightness(self) -> None:
+        """Dim the display. On the Mac this is window opacity standing in for the
+        device backlight; low power mode dims a little further."""
+        level = self._brightness / 100.0
+        if self._low_power:
+            level *= 0.8
+        alpha = 0.55 + 0.45 * level   # floor so it never goes near-invisible
+        try:
+            self.root.attributes("-alpha", alpha)
+        except tk.TclError:
+            pass
+
+    def _note_activity(self) -> bool:
+        """Mark interaction; wake if asleep. Returns True if it consumed a wake."""
+        self._last_activity = time.monotonic()
+        if self._asleep:
+            self._wake()
+            return True
+        return False
+
+    def _check_auto_off(self) -> None:
+        if (self._auto_off_min and not self._asleep and not self.engine.is_playing
+                and time.monotonic() - self._last_activity >= self._auto_off_min * 60):
+            self._sleep()
+        self.root.after(_AUTOOFF_CHECK_MS, self._check_auto_off)
+
+    def _sleep(self) -> None:
+        self._asleep = True
+        self._pause()
+        self.sleep_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        tk.Misc.tkraise(self.sleep_overlay)
+        self.sleep_overlay.focus_set()
+
+    def _wake(self) -> None:
+        if not self._asleep:
+            return
+        self._asleep = False
+        self.sleep_overlay.place_forget()
+        self.root.focus_set()
+        self._last_activity = time.monotonic()
+        self._render()
+        self._update_status()
 
     def _render_content(self) -> None:
         if self.nav.in_menu:
