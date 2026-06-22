@@ -51,8 +51,9 @@ menu or the reading view).
 `[` re-reads from the start of the current sentence (press again to step back
 sentence by sentence) — RSVP otherwise removes the ability to glance back, which
 matters for comprehension. Your **reading position, speed, font, and pivot
-setting are saved automatically** (your place is saved continuously as you read,
-so a book always reopens where you left off — however the app was closed).
+setting are saved automatically** (your place is the furthest point you reached,
+saved continuously as you read, so going back to re-read never loses it and a
+book always reopens where you got to — however the app was closed).
 
 In the **read-normally** view the whole book is shown as an ordinary wrapped
 paragraph with your current word highlighted and scrolled into view — for

@@ -99,6 +99,7 @@ class RsvpApp:
         })
         self._after_id: str | None = None
         self._words_since_save = 0
+        self._furthest = 0  # furthest word reached; what we resume to (re-reading won't lower it)
         self._show_status = True
         self._reading = False          # is the "read normally" overlay open?
         self._placeholder = "—"
@@ -331,6 +332,7 @@ class RsvpApp:
         )
         self._book_path = path
         self._book_name = path.stem
+        self._furthest = resume_at  # resume point is the furthest reached so far
         self._render()
         self._update_status()
 
@@ -339,7 +341,10 @@ class RsvpApp:
     def _save_position(self) -> None:
         self._words_since_save = 0
         if self._book_path is not None and self.engine.total_words:
-            self.store.set_position(self._book_path, self.engine.index)
+            # Resume to the furthest point reached, not wherever the cursor is
+            # now — so going back to re-read never loses your place.
+            self._furthest = max(self._furthest, self.engine.index)
+            self.store.set_position(self._book_path, self._furthest)
             self.store.save()
 
     def _save_settings(self) -> None:
@@ -394,6 +399,7 @@ class RsvpApp:
             return
         if self.engine.advance():
             self._words_since_save += 1
+            self._furthest = max(self._furthest, self.engine.index)
             if self._words_since_save >= _AUTOSAVE_EVERY:
                 self._save_position()
             self._tick()
@@ -508,10 +514,9 @@ class RsvpApp:
         if books:
             items = []
             for i, p in enumerate(books):
-                here = current is not None and book_key(p) == current
-                if here:
-                    current_idx = i
-                items.append(MenuItem(str(p), f"• {p.stem}" if here else p.stem))
+                if current is not None and book_key(p) == current:
+                    current_idx = i  # cursor starts here; no separate marker
+                items.append(MenuItem(str(p), p.stem))
             self._menu_hint = "tap a book to open    ·    swipe ▶ / esc  back"
         else:
             items = [MenuItem("", "No books found", enabled=False)]
@@ -542,19 +547,19 @@ class RsvpApp:
         targets = self._chapter_targets()
         if not targets:
             return
-        # Which target am I currently inside? (the last one at/before my word)
-        here = self.engine.index
+        # The furthest chapter reached (the last one at/before the furthest word).
+        here = max(self._furthest, self.engine.index)
         current = 0
         for i, (_, wi) in enumerate(targets):
             if wi <= here:
                 current = i
         items = []
         for i, (label, _) in enumerate(targets):
-            mark = "• " if i == current else ""   # remember where you are
+            mark = "• " if i == current else ""   # the furthest chapter you've reached
             items.append(MenuItem(str(targets[i][1]), f"{mark}{label}"))
         self._menu_hint = "tap to jump    ·    swipe ▶ / esc  back"
         self.nav.open(Screen.CHAPTERS, items=items)
-        self.nav.menu.select_index(current)  # land the cursor on your spot
+        self.nav.menu.select_index(current)  # land the cursor on the furthest chapter
         self._render()
         self._update_status()
 
