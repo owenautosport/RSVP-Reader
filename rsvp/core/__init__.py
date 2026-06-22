@@ -7,5 +7,6 @@ hardware) later.
 
 from .tokenizer import tokenize
 from .engine import RsvpEngine
+from .pivot import pivot_index
 
-__all__ = ["tokenize", "RsvpEngine"]
+__all__ = ["tokenize", "RsvpEngine", "pivot_index"]

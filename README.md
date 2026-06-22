@@ -28,6 +28,7 @@ python3 -m rsvp path/to/book.txt
 | `↑ / ↓`   | speed up / down (25 wpm)       |
 | `r`       | restart from the beginning     |
 | `o`       | open a book                    |
+| `p`       | toggle pivot (ORP) alignment   |
 | `h`       | hide / show the status line    |
 | `q` / esc | quit                           |
 
@@ -38,7 +39,7 @@ third-party dependencies and is offline by construction.
 
 ```
 rsvp/
-  core/    UI-agnostic engine + tokenizer (no GUI imports) -- reusable on any host
+  core/    UI-agnostic engine + tokenizer + ORP pivot (no GUI imports) -- reusable on any host
   books/   loading book files into plain text (isolated parsers; .txt for now)
   ui/      tkinter front-end: owns the window, keyboard, and timer
 samples/   a short original sample book
@@ -50,6 +51,7 @@ boundary is what lets the engine move to different controls or hardware later.
 
 ## Status
 
-Early MVP: plain-text books, adjustable speed, play/pause, step, restart.
-EPUB/PDF parsing, position memory, and an optimal-recognition-point alignment
-are planned next.
+Early MVP: plain-text books, adjustable speed, play/pause, step, restart, and
+optimal-recognition-point (ORP) pivot alignment that pins a highlighted focal
+letter in place so the eye stays still (toggle with `p`). EPUB/PDF parsing and
+position memory are planned next.

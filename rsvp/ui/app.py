@@ -13,15 +13,22 @@ from pathlib import Path
 from tkinter import filedialog, font as tkfont
 
 from ..books import BookLoadError, SUPPORTED_EXTENSIONS, load_book
-from ..core import RsvpEngine, tokenize
+from ..core import RsvpEngine, pivot_index, tokenize
 
 # Quiet, low-contrast palette so the word is the only thing that stands out.
 _BG = "#111111"
 _FG = "#f2f2f2"
 _DIM = "#666666"
+_PIVOT = "#e8643c"   # the one highlighted pivot letter
+_GUIDE = "#333333"   # faint tick marks framing the pivot column
+
+# Where the pivot letter is pinned horizontally (fraction of window width).
+# Just left of center leaves room for the usually-longer word tail.
+_PIVOT_RELX = 0.45
 
 _WPM_STEP = 25
-_HELP = "space play/pause   ←/→ step   ↑/↓ speed   r restart   o open   h hide   q quit"
+_HELP = ("space play/pause   ←/→ step   ↑/↓ speed   "
+         "r restart   o open   p pivot   h hide   q quit")
 
 
 class RsvpApp:
@@ -29,6 +36,8 @@ class RsvpApp:
         self.engine = RsvpEngine()
         self._after_id: str | None = None
         self._show_status = True
+        self._orp_enabled = True
+        self._placeholder = "—"
         self._book_name = ""
 
         self.root = tk.Tk()
@@ -40,10 +49,12 @@ class RsvpApp:
         self._word_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
         self._status_font = tkfont.Font(family="Helvetica", size=13)
 
-        self.word_label = tk.Label(
-            self.root, text="", font=self._word_font, fg=_FG, bg=_BG, anchor="center"
-        )
-        self.word_label.place(relx=0.5, rely=0.5, anchor="center")
+        # A canvas (not a Label) so the pivot letter can be pinned to a fixed
+        # x-position regardless of word length. Fills the window; the status
+        # line sits on top of it.
+        self.canvas = tk.Canvas(self.root, bg=_BG, highlightthickness=0)
+        self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.canvas.bind("<Configure>", lambda e: self._render())
 
         self.status_label = tk.Label(
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
@@ -69,6 +80,7 @@ class RsvpApp:
         r.bind("<Left>", lambda e: self._step(-1))
         r.bind("<r>", lambda e: self._restart())
         r.bind("<o>", lambda e: self._open_dialog())
+        r.bind("<p>", lambda e: self._toggle_orp())
         r.bind("<h>", lambda e: self._toggle_status())
         r.bind("<q>", lambda e: self.root.destroy())
         r.bind("<Escape>", lambda e: self.root.destroy())
@@ -94,9 +106,11 @@ class RsvpApp:
         except BookLoadError as exc:
             self._book_name = ""
             self.engine.load([])
-            self.word_label.config(text="⚠")
+            self._placeholder = "⚠"
+            self._render()
             self.status_label.config(text=str(exc))
             return
+        self._placeholder = "—"
         self.engine.load(tokenize(text))
         self._book_name = path.stem
         self._render()
@@ -170,11 +184,57 @@ class RsvpApp:
         self._show_status = not self._show_status
         self._update_status()
 
+    def _toggle_orp(self) -> None:
+        self._orp_enabled = not self._orp_enabled
+        self._render()
+
     # -- rendering -------------------------------------------------------
 
     def _render(self) -> None:
+        c = self.canvas
+        c.delete("all")
+        width = max(c.winfo_width(), 1)
+        height = max(c.winfo_height(), 1)
+        cy = height / 2
+        font = self._word_font
+
         word = self.engine.current_word
-        self.word_label.config(text=word if word else "—")
+        if not word:
+            c.create_text(width / 2, cy, text=self._placeholder, fill=_DIM,
+                          font=font, anchor="center")
+            return
+
+        if not self._orp_enabled:
+            c.create_text(width / 2, cy, text=word, fill=_FG,
+                          font=font, anchor="center")
+            return
+
+        self._draw_orp(word, width, cy, font)
+
+    def _draw_orp(self, word: str, width: int, cy: float, font: tkfont.Font) -> None:
+        """Draw the word with its pivot letter pinned and highlighted."""
+        c = self.canvas
+        p = pivot_index(word)
+        before, pivot, after = word[:p], word[p], word[p + 1:]
+
+        pivot_x = width * _PIVOT_RELX
+        pivot_w = font.measure(pivot)
+        left_edge = pivot_x - pivot_w / 2
+        right_edge = pivot_x + pivot_w / 2
+
+        # Faint guide ticks framing the fixed pivot column.
+        font_h = font.metrics("linespace")
+        c.create_line(pivot_x, cy - font_h, pivot_x, cy - font_h * 0.55,
+                      fill=_GUIDE, width=2)
+        c.create_line(pivot_x, cy + font_h * 0.55, pivot_x, cy + font_h,
+                      fill=_GUIDE, width=2)
+
+        # The pivot letter stays put; the rest of the word grows around it.
+        c.create_text(pivot_x, cy, text=pivot, fill=_PIVOT, font=font, anchor="center")
+        if before:
+            c.create_text(left_edge, cy, text=before, fill=_FG, font=font, anchor="e")
+        if after:
+            c.create_text(right_edge, cy, text=after, fill=_FG, font=font, anchor="w")
 
     def _update_status(self) -> None:
         if not self._show_status:
