@@ -579,6 +579,8 @@ class RsvpApp:
         self.nav.open(Screen.LIBRARY, items=items)
         if current_idx is not None and not self._remove_mode:
             self.nav.menu.select_index(current_idx)  # start on the open book
+        self._render()
+        self._update_status()
 
     @staticmethod
     def _cheap_title(path: Path) -> str:

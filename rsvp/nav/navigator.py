@@ -45,14 +45,19 @@ class Navigator:
         return self._menus.get(self.screen)
 
     def open(self, screen: Screen, items: list | None = None) -> None:
-        """Push a list screen, optionally replacing its items first."""
+        """Show a list screen, optionally replacing its items first.
+
+        Pushes it onto the stack, unless it is already the current screen — then
+        it just refreshes in place (so re-opening to refresh doesn't stack
+        duplicate screens and bloat the back history)."""
         menu = self._menus.get(screen)
         if menu is None:
             return
         if items is not None:
             menu.set_items(items)
         menu.reset()
-        self._stack.append(screen)
+        if self.screen is not screen:
+            self._stack.append(screen)
 
     def back(self) -> None:
         """Pop one screen (no-op at the base reading screen)."""
