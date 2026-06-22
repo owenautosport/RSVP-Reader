@@ -32,10 +32,14 @@ _READING_HL_FG = "#111111"   # text of that highlighted word
 # Just left of center leaves room for the usually-longer word tail.
 _PIVOT_RELX = 0.45
 
+# Word fonts the reader can cycle through with 'f' (a sans, two serifs, a mono,
+# and a wide sans). Missing families fall back to a system default automatically.
+_WORD_FONTS = ("Helvetica", "Georgia", "Menlo", "Verdana", "Palatino")
+
 _WPM_STEP = 25
 # Control tips framing the word: primary actions on top, the rest on the bottom.
-_TIPS_TOP = "space play/pause    ↑/↓ speed    ←/→ step    tab read"
-_TIPS_BOTTOM = "r restart    o open    p pivot    h hide    q quit"
+_TIPS_TOP = "space play/pause    ↑/↓ speed    ←/→ word    [ ] sentence    tab read"
+_TIPS_BOTTOM = "f font    p pivot    r restart    o open    h hide    q quit"
 
 
 class RsvpApp:
@@ -44,6 +48,7 @@ class RsvpApp:
         self._after_id: str | None = None
         self._show_status = True
         self._orp_enabled = True
+        self._font_idx = 0             # index into _WORD_FONTS
         self._reading = False          # is the "read normally" overlay open?
         self._placeholder = "—"
         self._book_name = ""
@@ -57,7 +62,7 @@ class RsvpApp:
         self.root.geometry("640x340")  # compact, landscape — closer to the target screen
         self.root.minsize(360, 200)
 
-        self._word_font = tkfont.Font(family="Helvetica", size=56, weight="bold")
+        self._word_font = tkfont.Font(family=_WORD_FONTS[0], size=56, weight="bold")
         self._status_font = tkfont.Font(family="Helvetica", size=11)
         self._reading_font = tkfont.Font(family="Georgia", size=16)
 
@@ -111,9 +116,12 @@ class RsvpApp:
         r.bind("<Down>", lambda e: self._change_speed(-_WPM_STEP))
         r.bind("<Right>", lambda e: self._step(+1))
         r.bind("<Left>", lambda e: self._step(-1))
+        r.bind("<bracketleft>", lambda e: self._rewind_sentence())
+        r.bind("<bracketright>", lambda e: self._forward_sentence())
         r.bind("<r>", lambda e: self._restart())
         r.bind("<o>", lambda e: self._open_dialog())
         r.bind("<p>", lambda e: self._toggle_orp())
+        r.bind("<f>", lambda e: self._cycle_font())
         r.bind("<Tab>", lambda e: self._toggle_reading_view() or "break")
         r.bind("<h>", lambda e: self._toggle_status())
         r.bind("<q>", lambda e: self.root.destroy())
@@ -216,11 +224,36 @@ class RsvpApp:
         self._render()
         self._update_status()
 
+    def _rewind_sentence(self) -> None:
+        """Re-read: jump back to the start of the current/previous sentence."""
+        if self._reading:
+            return
+        self._pause()
+        self.engine.rewind_sentence()
+        self._render()
+        self._update_status()
+
+    def _forward_sentence(self) -> None:
+        if self._reading:
+            return
+        self._pause()
+        self.engine.forward_sentence()
+        self._render()
+        self._update_status()
+
     def _restart(self) -> None:
         if self._reading:
             return
         self._pause()
         self.engine.restart()
+        self._render()
+        self._update_status()
+
+    def _cycle_font(self) -> None:
+        if self._reading:
+            return
+        self._font_idx = (self._font_idx + 1) % len(_WORD_FONTS)
+        self._word_font.config(family=_WORD_FONTS[self._font_idx])
         self._render()
         self._update_status()
 
@@ -370,9 +403,10 @@ class RsvpApp:
         state = "▶" if self.engine.is_playing else "❚❚"
         pct = int(self.engine.progress * 100)
         name = f"{self._book_name}    " if self._book_name else ""
+        font = _WORD_FONTS[self._font_idx]
         # Top bar: live status + primary tips. Bottom bar: the rest.
         self.top_bar.config(
-            text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%        {_TIPS_TOP}"
+            text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%   ·   {font}        {_TIPS_TOP}"
         )
         self.bottom_bar.config(text=_TIPS_BOTTOM)
 

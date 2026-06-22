@@ -25,13 +25,19 @@ python3 -m rsvp path/to/book.txt
 |-----------|--------------------------------|
 | `space`   | play / pause                   |
 | `← / →`   | step back / forward one word   |
-| `↑ / ↓`   | speed up / down (25 wpm)       |
+| `[ / ]`   | rewind / skip one sentence     |
+| `↑ / ↓`   | speed up / down (25 wpm)        |
 | `tab`     | read normally (paragraph view) |
+| `f`       | cycle the word font            |
 | `r`       | restart from the beginning     |
 | `o`       | open a book                    |
 | `p`       | toggle pivot (ORP) alignment   |
 | `h`       | hide / show the status line    |
 | `q` / esc | quit (esc also closes reading) |
+
+`[` re-reads from the start of the current sentence (press again to step back
+sentence by sentence) — RSVP otherwise removes the ability to glance back, which
+matters for comprehension. Sentence ends get a longer pause for the same reason.
 
 In the **read-normally** view the whole book is shown as an ordinary wrapped
 paragraph with your current word highlighted and scrolled into view — for
@@ -57,7 +63,8 @@ boundary is what lets the engine move to different controls or hardware later.
 
 ## Status
 
-Early MVP: plain-text books, adjustable speed, play/pause, step, restart,
-optimal-recognition-point (ORP) pivot alignment (toggle with `p`), and a
-read-normally paragraph view for finding your place (`tab`). EPUB/PDF parsing
-and position memory are planned next.
+Early MVP: plain-text books, adjustable speed, play/pause, word + sentence
+navigation (rewind to re-read), longer sentence-end pauses, restart,
+optimal-recognition-point (ORP) pivot alignment (`p`), switchable fonts (`f`),
+and a read-normally paragraph view for finding your place (`tab`). EPUB/PDF
+parsing and position memory are planned next.

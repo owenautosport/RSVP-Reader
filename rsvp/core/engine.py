@@ -25,10 +25,13 @@ MIN_WPM = 60
 MAX_WPM = 1200
 DEFAULT_WPM = 300
 
-# Extra lingering, as a multiple of the base per-word delay.
+# Extra lingering, as a multiple of the base per-word delay. The sentence-end
+# pause is deliberately the longest: eye-tracking research shows readers spend
+# extra time integrating ("wrapping up") at sentence boundaries, and a clear
+# beat there helps comprehension in RSVP.
 _END_OF_SENTENCE = ".!?…"
 _CLAUSE_BREAK = ",;:—–"
-_SENTENCE_PAUSE = 2.0  # full stop / question / exclamation
+_SENTENCE_PAUSE = 2.8  # full stop / question / exclamation
 _CLAUSE_PAUSE = 1.5    # comma, semicolon, colon, dash
 _LONG_WORD_LEN = 9     # words at least this long get a little more time
 _LONG_WORD_PAUSE = 1.3
@@ -110,6 +113,46 @@ class RsvpEngine:
 
     def restart(self) -> None:
         self._index = 0
+
+    # -- sentence navigation (rewind / skip) ----------------------------
+    #
+    # RSVP removes the reader's ability to glance back and re-read; the
+    # comprehension research is clear that those regressions matter. These let a
+    # host give that ability back at sentence granularity.
+
+    @staticmethod
+    def _ends_sentence(word: str) -> bool:
+        return bool(word) and word[-1] in _END_OF_SENTENCE
+
+    def sentence_start(self, index: int) -> int:
+        """Index of the first word of the sentence containing ``index``."""
+        i = max(0, min(index, len(self._words) - 1))
+        while i > 0 and not self._ends_sentence(self._words[i - 1]):
+            i -= 1
+        return i
+
+    def rewind_sentence(self) -> int:
+        """Jump to the start of the current sentence, or the previous one if
+        already there. Returns the new index. Re-read what you just missed."""
+        if not self._words:
+            return 0
+        start = self.sentence_start(self._index)
+        if start < self._index:
+            self.seek_to(start)            # back to the start of this sentence
+        elif start > 0:
+            self.seek_to(self.sentence_start(start - 1))  # the sentence before
+        return self._index
+
+    def forward_sentence(self) -> int:
+        """Jump to the start of the next sentence. Returns the new index."""
+        if not self._words:
+            return 0
+        i = self._index
+        last = len(self._words) - 1
+        while i < last and not self._ends_sentence(self._words[i]):
+            i += 1
+        self.seek_to(min(i + 1, last))
+        return self._index
 
     # -- playback state --------------------------------------------------
 
