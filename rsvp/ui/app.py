@@ -88,8 +88,8 @@ _WORD_FONTS = ("Helvetica", "Georgia", "Menlo", "Verdana", "Palatino")
 
 _WPM_STEP = 25
 # Control tips framing the word: primary actions on top, the rest on the bottom.
-_TIPS_TOP = "space play/pause    ↑/↓ speed    ←/→ word    [ ] sentence    tab read"
-_TIPS_BOTTOM = "f font    p pivot    r restart    o open    h hide    q quit"
+_TIPS_TOP = "space play/pause    ↑/↓ speed    m menu    tab read"
+_TIPS_BOTTOM = "r restart    o open    h hide    q quit"
 
 
 class RsvpApp:
@@ -197,14 +197,8 @@ class RsvpApp:
         # touch). All no-op while a menu or the reading overlay is open.
         r.bind("<Up>", lambda e: self._change_speed(+_WPM_STEP))
         r.bind("<Down>", lambda e: self._change_speed(-_WPM_STEP))
-        r.bind("<Right>", lambda e: self._step(+1))
-        r.bind("<Left>", lambda e: self._step(-1))
-        r.bind("<bracketleft>", lambda e: self._rewind_sentence())
-        r.bind("<bracketright>", lambda e: self._forward_sentence())
         r.bind("<r>", lambda e: self._restart())
         r.bind("<o>", lambda e: self._open_dialog())
-        r.bind("<p>", lambda e: self._toggle_orp())
-        r.bind("<f>", lambda e: self._cycle_font())
         r.bind("<Tab>", lambda e: self._toggle_reading_view() or "break")
         r.bind("<h>", lambda e: self._toggle_status())
         r.bind("<q>", lambda e: self._quit())
@@ -276,11 +270,7 @@ class RsvpApp:
                 self._menu_move(1)
             elif swipe is Swipe.RIGHT:
                 self._menu_back()  # swipe right = back one screen
-        else:
-            if swipe is Swipe.LEFT:
-                self._rewind_sentence()
-            elif swipe is Swipe.RIGHT:
-                self._forward_sentence()
+        # Reading screen has no swipe actions; speed/play are the side buttons.
 
     def _on_escape(self) -> None:
         if self._reading:
@@ -419,47 +409,13 @@ class RsvpApp:
             self.root.after_cancel(self._after_id)
             self._after_id = None
 
-    # -- manual navigation & speed --------------------------------------
-
-    def _step(self, delta: int) -> None:
-        if self._controls_locked():
-            return
-        self._pause()
-        self.engine.seek_to(self.engine.index + delta)
-        self._render()
-        self._update_status()
-
-    def _rewind_sentence(self) -> None:
-        """Re-read: jump back to the start of the current/previous sentence."""
-        if self._controls_locked():
-            return
-        self._pause()
-        self.engine.rewind_sentence()
-        self._render()
-        self._update_status()
-
-    def _forward_sentence(self) -> None:
-        if self._controls_locked():
-            return
-        self._pause()
-        self.engine.forward_sentence()
-        self._render()
-        self._update_status()
+    # -- speed & display -------------------------------------------------
 
     def _restart(self) -> None:
         if self._controls_locked():
             return
         self._pause()
         self.engine.restart()
-        self._render()
-        self._update_status()
-
-    def _cycle_font(self) -> None:
-        if self._controls_locked():
-            return
-        self._font_idx = (self._font_idx + 1) % len(_WORD_FONTS)
-        self._word_font.config(family=_WORD_FONTS[self._font_idx])
-        self._save_settings()
         self._render()
         self._update_status()
 
@@ -473,13 +429,6 @@ class RsvpApp:
     def _toggle_status(self) -> None:
         self._show_status = not self._show_status
         self._update_status()
-
-    def _toggle_orp(self) -> None:
-        if self._controls_locked():
-            return
-        self._orp_enabled = not self._orp_enabled
-        self._save_settings()
-        self._render()
 
     # -- main menu -------------------------------------------------------
 
@@ -823,10 +772,9 @@ class RsvpApp:
         state = "▶" if self.engine.is_playing else "❚❚"
         pct = int(self.engine.progress * 100)
         name = f"{self._book_name}    " if self._book_name else ""
-        font = _WORD_FONTS[self._font_idx]
         # Top bar: live status + primary tips. Bottom bar: the rest.
         self.top_bar.config(
-            text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%   ·   {font}        {_TIPS_TOP}"
+            text=f"{name}{state}  {self.engine.wpm} wpm   {pct}%        {_TIPS_TOP}"
         )
         self.bottom_bar.config(text=_TIPS_BOTTOM)
 
