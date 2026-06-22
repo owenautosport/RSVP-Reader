@@ -58,7 +58,7 @@ _SPEED_PRESETS = (150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 1000)
 
 # iPhone-style battery indicator colours and how often to re-read the level.
 _BATT_OUTLINE = "#9a9a9a"
-_BATT_OK = "#34c759"
+_BATT_OK = _PIVOT       # accent orange, matching the pivot letter
 _BATT_LOW = "#ff3b30"
 _BATT_POLL_MS = 60_000
 
@@ -179,7 +179,8 @@ class RsvpApp:
         self.top_bar = tk.Label(
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
         )
-        self.top_bar.place(relx=0.5, rely=0.07, anchor="center")
+        # Sits a little below the very top so it clears the corner battery icon.
+        self.top_bar.place(relx=0.5, rely=0.11, anchor="center")
         self.bottom_bar = tk.Label(
             self.root, text="", font=self._status_font, fg=_DIM, bg=_BG, anchor="center"
         )
@@ -189,7 +190,7 @@ class RsvpApp:
         # the top-right corner. Shown on every page or only on About (a setting).
         self._batt_font = tkfont.Font(family="Helvetica", size=8, weight="bold")
         self.battery_canvas = tk.Canvas(
-            self.root, width=44, height=20, bg=_BG, highlightthickness=0
+            self.root, width=44, height=16, bg=_BG, highlightthickness=0
         )
 
         # "Read normally" overlay: the whole book as a wrapped paragraph, shown
@@ -820,7 +821,7 @@ class RsvpApp:
     def _draw_battery(self) -> None:
         c = self.battery_canvas
         c.delete("all")
-        bx, by, bw, bh = 3, 3, 28, 13           # body rectangle
+        bx, by, bw, bh = 3, 2, 28, 12           # body rectangle
         _rounded_rect(c, bx, by, bx + bw, by + bh, 3,
                       outline=_BATT_OUTLINE, fill="", width=1)
         c.create_rectangle(bx + bw, by + 4, bx + bw + 2, by + bh - 4,
