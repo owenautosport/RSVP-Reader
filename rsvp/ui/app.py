@@ -17,9 +17,9 @@ from __future__ import annotations
 import bisect
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, font as tkfont
+from tkinter import font as tkfont
 
-from ..books import BookLoadError, SUPPORTED_EXTENSIONS, find_books, load_book
+from ..books import BookLoadError, find_books, load_book
 from ..core import (
     RsvpEngine,
     find_chapters,
@@ -89,7 +89,7 @@ _WORD_FONTS = ("Helvetica", "Georgia", "Menlo", "Verdana", "Palatino")
 _WPM_STEP = 25
 # Control tips framing the word: primary actions on top, the rest on the bottom.
 _TIPS_TOP = "space play/pause    ↑/↓ speed    m menu    tab read"
-_TIPS_BOTTOM = "r restart    o open    h hide    q quit"
+_TIPS_BOTTOM = "r restart    h hide    q quit"
 
 
 class RsvpApp:
@@ -198,7 +198,6 @@ class RsvpApp:
         r.bind("<Up>", lambda e: self._change_speed(+_WPM_STEP))
         r.bind("<Down>", lambda e: self._change_speed(-_WPM_STEP))
         r.bind("<r>", lambda e: self._restart())
-        r.bind("<o>", lambda e: self._open_dialog())
         r.bind("<Tab>", lambda e: self._toggle_reading_view() or "break")
         r.bind("<h>", lambda e: self._toggle_status())
         r.bind("<q>", lambda e: self._quit())
@@ -285,19 +284,6 @@ class RsvpApp:
         return self._reading or self.nav.in_menu
 
     # -- book loading ----------------------------------------------------
-
-    def _open_dialog(self) -> None:
-        was_playing = self.engine.is_playing
-        self._pause()
-        patterns = " ".join(f"*{ext}" for ext in SUPPORTED_EXTENSIONS)
-        path = filedialog.askopenfilename(
-            title="Open book",
-            filetypes=[("Text books", patterns), ("All files", "*.*")],
-        )
-        if path:
-            self._open_path(Path(path))
-        elif was_playing:
-            self._play()
 
     def _open_path(self, path: Path) -> None:
         self._save_position()  # remember where we were in the previous book
@@ -438,8 +424,7 @@ class RsvpApp:
         self._close_menu() if self.nav.in_menu else self._open_menu()
 
     def _open_menu(self) -> None:
-        if not self.engine.total_words:
-            return
+        # Reachable even with no book loaded, so the Library is always available.
         self._pause()
         self._menu_hint = "tap an item to choose    ·    swipe ▶ / esc  back"
         self.nav.open(Screen.MENU)
@@ -766,7 +751,7 @@ class RsvpApp:
             )
             return
         if not self.engine.total_words:
-            self.top_bar.config(text="Press  o  to open a book")
+            self.top_bar.config(text="Tap to open the menu  →  Library")
             self.bottom_bar.config(text=_TIPS_BOTTOM)
             return
         state = "▶" if self.engine.is_playing else "❚❚"

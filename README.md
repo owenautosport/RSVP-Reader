@@ -47,8 +47,12 @@ buttons, and a tap opens the menu — that's it. Speed, font, and pivot are set 
 **Settings**.
 
 **Keyboard conveniences** (Mac dev): `↑ / ↓` speed, `m` menu, `tab` read-normally,
-`r` restart, `o` open, `h` hide status, `q` / `esc` quit (esc also backs out of a
-menu or the reading view).
+`r` restart, `h` hide status, `q` / `esc` quit (esc also backs out of a menu or
+the reading view).
+
+Books are added by dropping `.txt` files where the Library scans (on the device,
+a microSD card); there is no file-open dialog. The menu and Library are reachable
+even when no book is loaded.
 
 Your **reading position, speed, font, and pivot setting are saved automatically**
 (your place is the furthest point you reached, saved continuously as you read, so
