@@ -5,9 +5,25 @@ centered, at a speed you choose (RSVP — Rapid Serial Visual Presentation), so
 your eyes stay still and the words come to you. It does one thing — focused
 reading of local books — and otherwise gets out of the way.
 
-Desktop counterpart (developed on macOS) to the open-source RSVP Nano pocket
-reader. Eventually targeted at a small landscape pocket screen; the hardware is
-not yet decided, so the reading/timing logic is kept separate from the UI.
+> ### 🔧 This is the `device` branch — the pocket hardware version
+> The actual handheld reader, plus the desktop app as its companion. The
+> reading/timing core and 3-button + touch input model were kept UI-agnostic
+> from the start so they port to hardware — and here they do.
+>
+> - [`hardware/`](hardware/) — the pocket device: bill of materials + a
+>   parametric 3D-printed case (`case.scad`).
+> - [`firmware/`](firmware/) — the device firmware: a **C++ port of this repo's
+>   reading engine** (verified against the Python), the architecture plan, and a
+>   PlatformIO config.
+> - The rest of this repo (below) is the **desktop app** — the cross-platform
+>   reader *and* the book loader that prepares books for the device. For just
+>   the released desktop app, see the [`main`](../../tree/main) branch.
+
+## The device, in brief
+A tiny, true-black, touch + 3-button RSVP reader on a Waveshare
+**ESP32-S3-Touch-AMOLED-2.41** board (~58×47 mm in a custom case), running the
+C++ port of our software. Full parts list and build notes in
+[`hardware/`](hardware/) and [`firmware/`](firmware/).
 
 ## Install (Windows, macOS & Linux)
 
