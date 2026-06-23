@@ -8,17 +8,24 @@ model, not a fork of RSVP Nano.
 
 ## Bill of materials
 
-| Part | Choice | Notes |
-|------|--------|-------|
-| **Brain + screen** | Waveshare **ESP32-S3-Touch-AMOLED-2.41** | 2.41″ AMOLED 600×450 landscape, cap touch, USB-C, microSD slot, MX1.25 LiPo header, IMU + RTC, 34-pin GPIO header |
-| **Battery** | ~1000 mAh LiPo, 3.7 V, **MX1.25** plug | ~7–10 h reading; days of standby. Match the board's MX1.25 connector |
-| **Buttons** | 3× low-profile tactile switches + 3D-printed caps | Slower · Play/Pause · Faster, on the top edge, wired to 3 GPIO |
-| **Storage** | 16 GB microSD (FAT32) | books are tiny; 8 GB is plenty too |
-| **Case** | custom 3D print — `case.scad` | two-part clamshell |
-| Misc | MX1.25 lead, hookup wire | — |
+| Part | Choice | ~Price | Notes |
+|------|--------|--------|-------|
+| **Brain + screen** | Waveshare **ESP32-S3-Touch-AMOLED-2.41** | ~$38 | 2.41″ AMOLED 600×450 landscape, cap touch, USB-C, microSD slot, MX1.25 LiPo header, IMU + RTC, 34-pin GPIO header |
+| **Battery** | 3.7 V ~1000 mAh LiPo | ~$9 | ~7–10 h reading; days of standby. See *battery connector* below |
+| **Buttons** | 3× low-profile / side-actuated tactile switches + 3D-printed caps | ~$7 | Slower · Play/Pause · Faster, top edge, wired to 3 GPIO |
+| **Storage** | 16 GB microSD (FAT32) | ~$7 | books are tiny; 8 GB is plenty too |
+| **MX1.25 pigtail** | 2-pin 1.25 mm lead (if the battery doesn't have one) | ~$6 | to match the board's connector |
+| **Case** | custom 3D print — `case.scad` | filament | two-part clamshell |
+| Misc | hookup wire | — | — |
 
-Charging, USB data (book transfer), the microSD slot, and a power button are all
-already on the board.
+**Total ≈ $60–70** + filament. Charging, USB data (book transfer), the microSD
+slot, and a power button are all already on the board.
+
+### Battery connector
+The board's battery header is **MX1.25 (1.25 mm)**, but most ~1000 mAh LiPos ship
+with a **JST-PH 2.0 mm** plug. So either get a cell with a 1.25 mm plug, or fit an
+MX1.25 pigtail and re-pin. ⚠️ LiPo connector polarity isn't standardized — confirm
+**+/−** against the board before plugging in.
 
 ## Estimated size
 
