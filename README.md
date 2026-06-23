@@ -162,3 +162,14 @@ Battery level is read per-OS (`rsvp/battery.py`: `pmset` on macOS,
 opacity standing in for a backlight), low-power mode, and the auto-off sleep
 timer are desktop stand-ins that the hardware port maps to the device's real
 gauge, backlight, and power controls.
+
+## Device companion
+
+The desktop app also prepares books for the pocket device (see the
+[`device`](../../tree/device) branch). `rsvp/export.py` converts any TXT/EPUB/PDF
+into the device's simple `.rsvp` format (plain text + chapter jump points), so
+the firmware never has to parse EPUB/PDF:
+
+```sh
+python3 -m rsvp.export path/to/book.epub /path/to/sd-card
+```
