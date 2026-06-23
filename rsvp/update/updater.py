@@ -44,15 +44,22 @@ class Updater:
         self._downloader = downloader
         self._applier = applier
 
+    def status(self) -> tuple[str, Release | None]:
+        """Distinguish the three outcomes a manual check cares about:
+        ``("update", release)``, ``("current", release)``, or
+        ``("offline", None)`` when the latest release can't be reached."""
+        release = self._provider.latest()
+        if release is None:
+            return ("offline", None)
+        if is_newer(self._current, release.version):
+            return ("update", release)
+        return ("current", release)
+
     def check(self) -> Release | None:
         """Return the latest release if it's newer than what's running, else None
         (also None when offline or no release exists)."""
-        release = self._provider.latest()
-        if release is None:
-            return None
-        if is_newer(self._current, release.version):
-            return release
-        return None
+        state, release = self.status()
+        return release if state == "update" else None
 
     def download_and_apply(self, release: Release, progress: ProgressFn | None = None) -> None:
         """Download the installer for this OS and apply it (which relaunches the

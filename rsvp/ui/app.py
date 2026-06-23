@@ -15,8 +15,11 @@ position and settings persist locally through ``rsvp.store``.
 from __future__ import annotations
 
 import bisect
+import platform
+import queue
 import shutil
 import sys
+import threading
 import time
 import tkinter as tk
 from pathlib import Path
@@ -40,6 +43,9 @@ from ..core import (
 from .. import __version__
 from ..battery import read_battery
 from ..nav import Button, Menu, MenuItem, Navigator, Screen, Swipe
+from ..update.apply import can_self_apply, get_applier
+from ..update.updater import Updater
+from .update_dialog import UpdateDialog, show_message
 from ..store import Store, book_key
 
 # Quiet, low-contrast palette so the word is the only thing that stands out.
@@ -177,7 +183,7 @@ class RsvpApp:
         s = self.store.get_settings(
             {"wpm": self.engine.wpm, "font_index": 0, "orp": True,
              "battery_always": True, "brightness": 100, "low_power": False,
-             "auto_off_min": 0}
+             "auto_off_min": 0, "auto_update": True, "notified_version": ""}
         )
         self.engine.wpm = int(s["wpm"])
         self._font_idx = int(s["font_index"]) % len(_WORD_FONTS)
@@ -187,6 +193,9 @@ class RsvpApp:
         self._brightness = int(s["brightness"])
         self._low_power = bool(s["low_power"])
         self._auto_off_min = int(s["auto_off_min"])
+        self._auto_update = bool(s["auto_update"])
+        self._notified_version = str(s["notified_version"])  # last release we auto-popped
+        self._update_busy = False  # a check/dialog is already in flight
         self._last_activity = time.monotonic()
         self._asleep = False
 
@@ -263,6 +272,9 @@ class RsvpApp:
         self._apply_brightness()
         self._poll_battery()    # first read + schedule periodic refresh
         self._check_auto_off()  # schedule the idle check
+        if self._auto_update:
+            # A moment after the window is up, quietly check for a new release.
+            self.root.after(1500, self._auto_check_updates)
 
     # -- setup -----------------------------------------------------------
 
@@ -446,6 +458,8 @@ class RsvpApp:
             "brightness": self._brightness,
             "low_power": self._low_power,
             "auto_off_min": self._auto_off_min,
+            "auto_update": self._auto_update,
+            "notified_version": self._notified_version,
         })
         self.store.save()
 
@@ -715,6 +729,8 @@ class RsvpApp:
             MenuItem("set_lowpower", f"Low power:  {'On' if self._low_power else 'Off'}"),
             MenuItem("set_autooff", f"Auto-off:  {self._format_autooff()}"),
             MenuItem("set_battery", f"Battery:  {battery}"),
+            MenuItem("set_autoupdate", f"Auto-update:  {'On' if self._auto_update else 'Off'}"),
+            MenuItem("set_checkupdate", "Check for updates"),
         ]
 
     def _format_autooff(self) -> str:
@@ -746,6 +762,10 @@ class RsvpApp:
         elif setting_id == "set_battery":
             self._battery_always = not self._battery_always
             self._update_battery()
+        elif setting_id == "set_autoupdate":
+            self._auto_update = not self._auto_update
+        elif setting_id == "set_checkupdate":
+            self._manual_check_updates()
         self._save_settings()
         # Refresh the row labels in place, keeping the cursor where it was.
         idx = self.nav.menu.index
@@ -760,6 +780,74 @@ class RsvpApp:
             if preset > wpm:
                 return preset
         return _SPEED_PRESETS[0]  # wrap round to the slowest
+
+    # -- self-update -----------------------------------------------------
+    # The only part of the app that touches the network. Checks run on a worker
+    # thread; results are marshalled back to the UI thread via root.after so the
+    # reading loop is never blocked.
+
+    def _make_updater(self) -> Updater:
+        return Updater(current_version=__version__, applier=get_applier(platform.system()))
+
+    def _check_updates_async(self, done) -> None:
+        if self._update_busy:
+            return
+        self._update_busy = True
+        result: queue.Queue = queue.Queue()
+
+        def work():
+            try:
+                result.put(self._make_updater().status())
+            except Exception:
+                result.put(("offline", None))
+
+        def poll():
+            # Drain on the UI thread — never touch Tk from the worker.
+            try:
+                state, release = result.get_nowait()
+            except queue.Empty:
+                self.root.after(120, poll)
+                return
+            done(state, release)
+
+        threading.Thread(target=work, daemon=True).start()
+        self.root.after(120, poll)
+
+    def _auto_check_updates(self) -> None:
+        self._check_updates_async(self._auto_check_done)
+
+    def _auto_check_done(self, state: str, release) -> None:
+        self._update_busy = False
+        if state != "update" or release is None:
+            return  # silent on auto-check: no nagging when offline or current
+        if release.version == self._notified_version:
+            return  # already nudged about this release; show it at most once
+        self._notified_version = release.version
+        self._save_settings()
+        self._show_update_dialog(release)
+
+    def _manual_check_updates(self) -> None:
+        self._check_updates_async(self._manual_check_done)
+
+    def _manual_check_done(self, state: str, release) -> None:
+        self._update_busy = False
+        if state == "update" and release is not None:
+            self._notified_version = release.version
+            self._save_settings()
+            self._show_update_dialog(release)
+        elif state == "current":
+            show_message(self.root, "Up to date",
+                         f"You're on the latest version ({__version__}).")
+        else:
+            show_message(self.root, "Couldn't check for updates",
+                         "Couldn't reach the update server — you may be offline.")
+
+    def _show_update_dialog(self, release) -> None:
+        UpdateDialog(
+            self.root, self._make_updater(), __version__, release,
+            can_apply=can_self_apply(),
+            on_apply=lambda: (self._save_position(), self._save_settings()),
+        )
 
     # -- info screens (Stats / About) -----------------------------------
 

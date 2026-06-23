@@ -64,6 +64,24 @@ class CheckTests(unittest.TestCase):
         self.assertIsNone(up.check())
 
 
+class StatusTests(unittest.TestCase):
+    def test_update_when_newer(self):
+        up, _, _, _ = _updater(_release("v1.1.0"))
+        state, rel = up.status()
+        self.assertEqual(state, "update")
+        self.assertEqual(rel.version, "v1.1.0")
+
+    def test_current_when_same(self):
+        up, _, _, _ = _updater(_release("v1.0.0"))
+        state, rel = up.status()
+        self.assertEqual(state, "current")
+        self.assertIsNotNone(rel)
+
+    def test_offline_when_provider_returns_none(self):
+        up, _, _, _ = _updater(None)
+        self.assertEqual(up.status(), ("offline", None))
+
+
 class DownloadAndApplyTests(unittest.TestCase):
     def test_downloads_then_applies_chosen_asset(self):
         up, _, dl, ap = _updater(_release())

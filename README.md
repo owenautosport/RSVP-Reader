@@ -24,6 +24,19 @@ Download for your system from the
 The app is fully self-contained — no separate Python install needed, and PDF
 support is included.
 
+### Staying up to date
+
+The desktop app can update itself. When a newer release is published it shows an
+**Update available** notice with the release notes; choosing **Update & Restart**
+downloads the right installer for your system, applies it, and relaunches into
+the new version.
+
+This is the *only* time the app touches the network — a single anonymous read of
+the public GitHub Releases list (no account, no token, no telemetry). It's on by
+default but you can turn it off under **Settings → Auto-update**, and check
+manually any time with **Settings → Check for updates**. The pocket device
+(the `device` branch) ships no updater and stays fully offline.
+
 ## Run from source
 
 Just Python 3 (with tkinter, which ships with the standard python.org build on

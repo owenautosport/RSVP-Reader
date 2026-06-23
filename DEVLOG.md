@@ -124,6 +124,29 @@ device  → hardware/ (README BOM, ORDER.md, case.scad) + firmware/ (C++ engine 
           nav ports, Renderer.h, plan, platformio.ini). Device-only.
 ```
 
+## 6a. Desktop self-update (post-1.0, on `main`)
+
+Added an in-app updater so released desktop versions can update themselves
+(`1.1.0-beta`). Designed deliberately around the offline promise: a new
+`rsvp/update/` package is the *only* code in the project that opens a socket —
+one anonymous read of the public GitHub `releases/latest` (no token, account, or
+telemetry). The pocket device ships no updater and stays fully offline.
+
+- **Flow:** on launch (auto-check on by default, toggleable in Settings) it
+  compares the running version to the latest release; if newer, a styled
+  notification shows the release notes. **Update & Restart** downloads the right
+  installer for the OS, applies it, and relaunches.
+- **Isolation:** pure, fully-unit-tested pieces — `version` (semver compare),
+  `release` (JSON parse behind a `ReleaseProvider`), `assets` (per-OS pick),
+  `downloader` (streamed, progress) — with `apply` (Windows NSIS `/S`, Linux
+  AppImage swap, macOS DMG `.app` replace) behind an `Applier` interface and an
+  `updater` orchestrator. 42 unit tests; all network/IO at the edges, all Tk on
+  the main thread (worker → queue → poller).
+- **Honest limits:** self-apply needs a frozen/installed build; from source it
+  falls back to opening the Releases page. Unsigned installers may still show one
+  Gatekeeper/SmartScreen prompt — built signing-ready. Spec:
+  `docs/superpowers/specs/2026-06-23-self-update-design.md`.
+
 ## 7. Where to pick up
 
 1. Order the parts (`hardware/ORDER.md`).
