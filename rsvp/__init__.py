@@ -10,4 +10,4 @@ The package is split so the reading/timing logic stays independent of any UI:
     rsvp.ui     -- the tkinter desktop front-end (current host)
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"

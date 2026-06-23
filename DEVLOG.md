@@ -147,6 +147,28 @@ telemetry). The pocket device ships no updater and stays fully offline.
   Gatekeeper/SmartScreen prompt — built signing-ready. Spec:
   `docs/superpowers/specs/2026-06-23-self-update-design.md`.
 
+## 6b. Self-update security hardening (`1.1.1`)
+
+A mandatory code + security review of 1.1.0 found the updater downloaded and
+**executed installers with no integrity verification**. Fixed in 1.1.1 (TDD, 56
+tests), reviewed and re-verified by independent code + security agents:
+
+- **Integrity:** verify the downloaded installer's SHA-256 against GitHub's
+  published per-asset `digest` (`hmac.compare_digest`) before applying; mismatch
+  raises `IntegrityError` and never executes.
+- **Transport:** enforce `https` + a GitHub-host allowlist on the asset URL, and
+  re-validate every HTTP redirect target against the allowlist.
+- **macOS injection:** the DMG applier passes paths as `sh` positional args
+  (`$1/$2/$3`) instead of interpolating them into the script — closes a
+  shell-injection vector from a crafted asset filename. Also guards the `rm -rf`
+  target (must be a real `.app`).
+- **UX/robustness:** the auto-update modal no longer pops mid-reading;
+  `html_url` is scheme-checked before opening a browser; prereleases aren't
+  offered on the stable channel.
+
+This was the first feature run through the agent-orchestrated review gate
+(`~/.claude/CLAUDE.md`) — which is exactly what caught the integrity gap.
+
 ## 7. Where to pick up
 
 1. Order the parts (`hardware/ORDER.md`).
