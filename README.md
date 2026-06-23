@@ -25,9 +25,12 @@ copied to the device's microSD; the device reads that prepared text.
 
 ## Status
 - ✅ Hardware BOM + parametric case — [`hardware/`](hardware/)
-- ✅ Reading engine ported to C++ and verified on the host — [`firmware/`](firmware/)
-- ⬜ Next: order the board → finalize case dimensions; port `Navigator`/`Menu`;
-  the LVGL renderer + drivers; and "Export to SD" in the desktop app.
+- ✅ Reading **engine** ported to C++ and host-verified — [`firmware/`](firmware/)
+- ✅ **Navigation** (`Navigator`/`Menu`) ported to C++ and host-verified
+- ✅ **Renderer interface** defined (`firmware/src/Renderer.h`)
+- ✅ **"Export to SD"** book converter — on the [`main`](../../tree/main) branch
+- ⬜ Needs the board: order it → finalize case dimensions; LVGL renderer +
+  drivers; input controller; SD/battery/power.
 
 The reading behaviour is shared by design — the pacing rules, the ORP pivot
 letter, and the menu model were built UI-agnostic in the desktop app first, so

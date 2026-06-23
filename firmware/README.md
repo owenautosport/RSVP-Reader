@@ -61,18 +61,29 @@ firmware/
   lib/                  // Waveshare board drivers, LVGL
 ```
 
-## Build order (incremental, each verifiable on the board)
-1. **Bring-up:** PlatformIO project, light the AMOLED (LVGL "hello"), read the 3
-   buttons + touch, mount the SD.
-2. **Engine port:** `RsvpEngine` + `pivot` + `tokenizer`, validated against the
-   Python tests (same inputs → same delays/words).
-3. **Reading screen:** render the centred word with the pinned/coloured pivot;
-   drive it from the engine + buttons (play/pause, speed).
-4. **Navigation:** port `Navigator`/`Menu`; build the menu/Library/Chapters/
-   Settings/Stats/About screens; touch + buttons.
-5. **Storage + battery + power:** resume position/settings from SD; battery icon
-   from the gauge; brightness + auto-off (AMOLED dim/off).
-6. **Desktop export:** add "Export to SD" to the desktop app; close the loop.
+## Build order (host-verifiable logic first, board-dependent UI after)
+- ✅ **Engine port** — `RsvpEngine` + `pivot` + `tokenizer`, verified against the
+  Python (`test/test_engine.cpp`).
+- ✅ **Navigation port** — `Navigator` + `Menu` + `actions`, verified against the
+  Python (`test/test_nav.cpp`).
+- ✅ **Renderer interface** — `Renderer.h` defines the display boundary so all the
+  logic above stays hardware-free (mirrors how tkinter was separate on desktop).
+- ✅ **Desktop export** — "Export to SD" shipped on `main` (`rsvp/export.py`)
+  writes the `.rsvp` files this firmware reads.
+- ⬜ **Board bring-up** *(needs hardware)* — PlatformIO build, light the AMOLED
+  (LVGL), read the 3 buttons + I²C touch, mount the SD.
+- ⬜ **Renderer + input on device** *(needs hardware)* — implement `Renderer` with
+  LVGL + the Waveshare AMOLED driver; an `InputController` mapping buttons/touch
+  to engine + navigator actions (the desktop `app.py` dispatch is the reference).
+- ⬜ **Storage + battery + power** *(needs hardware)* — read `.rsvp` + settings
+  from SD; battery icon from the gauge; brightness + auto-off (AMOLED dim/off).
 
-Nothing here can be compiled/tested without the board, so this is the plan; the
-port proceeds module-by-module with the Python as the spec.
+The pure logic (engine + nav) is **done and host-verified**. What remains is the
+hardware-bound layer, which proceeds once the board is in hand — the `app.py`
+dispatch and the Python tests stay the reference throughout.
+
+To run the host tests:
+```sh
+g++ -std=c++17 firmware/test/test_engine.cpp firmware/src/RsvpEngine.cpp -o /tmp/te && /tmp/te
+g++ -std=c++17 firmware/test/test_nav.cpp firmware/src/Menu.cpp firmware/src/Navigator.cpp -o /tmp/tn && /tmp/tn
+```
