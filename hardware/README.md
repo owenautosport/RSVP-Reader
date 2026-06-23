@@ -2,8 +2,9 @@
 
 The pocket device: a tiny, true-black, touch + 3-button RSVP reader built on an
 ESP32-S3 board (the same family as the open-source RSVP Nano). This project's
-desktop app is its companion + book loader; the device itself runs firmware
-(RSVP Nano, or a fork that adds the 3 buttons and our menu UX).
+desktop app is its companion + book loader; the device runs a **C++ port of our
+own software** (see [`../firmware`](../firmware)) — our reading core and nav
+model, not a fork of RSVP Nano.
 
 ## Bill of materials
 
@@ -38,7 +39,7 @@ microSD cutout (side), board-seating posts, and a battery pocket.
 area's offset, and which edges the USB-C and microSD sit on — these drive every
 cutout position.
 
-## Wiring (firmware fork)
+## Wiring (firmware)
 
 - **3 buttons** → 3 free GPIO on the 34-pin header (internal pull-ups; or a
   single-ADC resistor ladder if pins get tight).
