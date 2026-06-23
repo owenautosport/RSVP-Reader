@@ -9,15 +9,17 @@ Desktop counterpart (developed on macOS) to the open-source RSVP Nano pocket
 reader. Eventually targeted at a small landscape pocket screen; the hardware is
 not yet decided, so the reading/timing logic is kept separate from the UI.
 
-## Install (Windows & macOS)
+## Install (Windows, macOS & Linux)
 
-Download the installer for your system from the
+Download for your system from the
 [**Releases**](https://github.com/owenautosport/RSVP-Reader/releases) page:
 
 - **Windows** — run `RSVP-Pocket-Reader-<version>-Setup.exe` (a standard
   next-next-finish wizard).
 - **macOS** — open `RSVP-Pocket-Reader-<version>-macOS.dmg` and drag the app to
   Applications.
+- **Linux** — make `RSVP-Pocket-Reader-<version>-x86_64.AppImage` executable
+  (`chmod +x`) and run it; no installation needed.
 
 The app is fully self-contained — no separate Python install needed, and PDF
 support is included.
@@ -48,6 +50,8 @@ Locally:
 pip install pyinstaller pypdf
 # macOS: builds the .app and a drag-to-install .dmg into ./installer
 bash packaging/build_macos.sh
+# Linux: builds a portable .AppImage into ./installer
+bash packaging/build_linux.sh
 # Windows: build the app, then compile the wizard with Inno Setup
 pyinstaller --noconfirm packaging/rsvp.spec
 iscc /DAppVersion=1.0.0 packaging\installer.iss
