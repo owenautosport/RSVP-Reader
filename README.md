@@ -9,7 +9,20 @@ Desktop counterpart (developed on macOS) to the open-source RSVP Nano pocket
 reader. Eventually targeted at a small landscape pocket screen; the hardware is
 not yet decided, so the reading/timing logic is kept separate from the UI.
 
-## Run
+## Install (Windows & macOS)
+
+Download the installer for your system from the
+[**Releases**](https://github.com/owenautosport/RSVP-Reader/releases) page:
+
+- **Windows** — run `RSVP-Pocket-Reader-<version>-Setup.exe` (a standard
+  next-next-finish wizard).
+- **macOS** — open `RSVP-Pocket-Reader-<version>-macOS.dmg` and drag the app to
+  Applications.
+
+The app is fully self-contained — no separate Python install needed, and PDF
+support is included.
+
+## Run from source
 
 Just Python 3 (with tkinter, which ships with the standard python.org build on
 macOS). `.txt` and `.epub` need **no third-party packages**:
@@ -21,6 +34,24 @@ python3 -m rsvp path/to/book.epub
 
 Reading `.pdf` books additionally needs `pypdf` (pure Python, offline once
 installed): `pip install pypdf` (or `pip install -r requirements.txt`).
+
+## Build the installers
+
+PyInstaller bundles the app; the OS-native installer wraps it. Building happens
+on each OS (a Windows `.exe` can't be built from macOS), so CI does both:
+pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which builds on
+Windows + macOS runners and publishes the installers to a GitHub Release.
+
+Locally:
+
+```sh
+pip install pyinstaller pypdf
+# macOS: builds the .app and a drag-to-install .dmg into ./installer
+bash packaging/build_macos.sh
+# Windows: build the app, then compile the wizard with Inno Setup
+pyinstaller --noconfirm packaging/rsvp.spec
+iscc /DAppVersion=1.0.0 packaging\installer.iss
+```
 
 ## Controls
 
@@ -94,7 +125,12 @@ different controls or hardware later.
 
 ## Status
 
-Early MVP: plain-text books, adjustable speed, play/pause, word + sentence
+**v1.0 — the desktop (Windows & macOS) edition.** A polished, installable PC
+app and the proving ground for the eventual pocket device; the reading/timing
+core and the 3-button + touch input model are kept separate so they port to
+hardware later.
+
+Features: plain-text books, adjustable speed, play/pause, word + sentence
 navigation (rewind to re-read), paragraph and clause pauses, difficulty-aware
 timing (longer for long and less-common words), restart, ORP pivot alignment
 (`p`), switchable fonts (`f`), a read-normally paragraph view (`tab`), a
@@ -117,7 +153,8 @@ chapters read from the book's spine. **PDF** is also supported via the optional
 `pypdf` package (chapters from the PDF outline when present); `.txt`/`.epub`
 remain dependency-free.
 
-Battery level (`rsvp/battery.py` via `pmset` on the Mac), screen brightness
-(window opacity standing in for the backlight), low-power mode, and the auto-off
-sleep timer are all dev stand-ins on macOS that the hardware port maps to the
-device's real gauge, backlight, and power controls.
+Battery level is read per-OS (`rsvp/battery.py`: `pmset` on macOS,
+`GetSystemPowerStatus` on Windows, `/sys` on Linux). Screen brightness (window
+opacity standing in for a backlight), low-power mode, and the auto-off sleep
+timer are desktop stand-ins that the hardware port maps to the device's real
+gauge, backlight, and power controls.

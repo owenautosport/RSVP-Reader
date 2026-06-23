@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import bisect
 import shutil
+import sys
 import time
 import tkinter as tk
 from pathlib import Path
@@ -88,9 +89,19 @@ _PROGRESS_SEGMENTS = 10
 # normal close handler running.
 _AUTOSAVE_EVERY = 20
 
-# Where the bundled sample book lives (repo root / samples), used by the Library.
-_SAMPLES_DIR = Path(__file__).resolve().parents[2] / "samples"
-# A user drop-folder for their own books.
+def _resource_root() -> Path:
+    """Folder holding bundled resources (the ``samples/`` dir).
+
+    In a PyInstaller build the data is unpacked next to the executable
+    (``sys._MEIPASS``); in a normal checkout it's the repo root."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parents[2]
+
+
+# Where the bundled sample book lives, used by the Library.
+_SAMPLES_DIR = _resource_root() / "samples"
+# A user drop-folder for their own books (cross-platform: ~ resolves per-OS).
 _USER_BOOKS_DIR = Path.home() / ".rsvp-reader" / "books"
 _MENU_ROW_H = 40  # pixel height of a menu row (also used for tap hit-testing)
 
@@ -113,9 +124,15 @@ _READING_HL_FG = "#111111"   # text of that highlighted word
 # Just left of center leaves room for the usually-longer word tail.
 _PIVOT_RELX = 0.45
 
-# Word fonts the reader can cycle through with 'f' (a sans, two serifs, a mono,
-# and a wide sans). Missing families fall back to a system default automatically.
-_WORD_FONTS = ("Helvetica", "Georgia", "Menlo", "Verdana", "Palatino")
+# Word fonts the reader can cycle through (sans, serif, mono, wide sans, serif).
+# Picked per-platform so each family exists; Tk falls back gracefully anyway.
+# ("Helvetica"/"Times"/"Courier" are portable Tk aliases.)
+if sys.platform == "darwin":
+    _WORD_FONTS = ("Helvetica", "Georgia", "Menlo", "Verdana", "Palatino")
+elif sys.platform.startswith("win"):
+    _WORD_FONTS = ("Segoe UI", "Georgia", "Consolas", "Verdana", "Palatino Linotype")
+else:
+    _WORD_FONTS = ("Helvetica", "DejaVu Serif", "DejaVu Sans Mono", "Verdana", "Times")
 
 _WPM_STEP = 25
 # All control tips live on the bottom bar; the top line stays short (status +

@@ -1,7 +1,7 @@
-"""Run the reader:  python3 -m rsvp [BOOK.txt]
+"""Run the reader:  python3 -m rsvp [BOOK]
 
-With no argument it opens the bundled sample book so there is always something
-to read. Press  o  inside the app to open one of your own.
+With no argument it opens the bundled sample (the onboarding guide) so there is
+always something to read. Inside the app, use the Library to add your own books.
 """
 
 from __future__ import annotations
@@ -10,8 +10,9 @@ import sys
 from pathlib import Path
 
 from .ui import run
+from .ui.app import _SAMPLES_DIR
 
-_SAMPLE = Path(__file__).resolve().parent.parent / "samples" / "sample.txt"
+_SAMPLE = _SAMPLES_DIR / "sample.txt"
 
 
 def main() -> None:

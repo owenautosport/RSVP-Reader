@@ -9,6 +9,11 @@ dist/
 venv/
 env/
 
+# Packaging output
+/installer/
+*.dmg
+*.spec.bak
+
 # Test / tooling caches
 .pytest_cache/
 .mypy_cache/
