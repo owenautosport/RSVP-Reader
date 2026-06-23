@@ -3,8 +3,9 @@
 The pocket device firmware is a **C++ port of this project's software**, not a
 fork of RSVP Nano. Our reading/timing core and navigation model were built
 UI-agnostic from the start precisely so they could move to hardware — this is
-where that pays off. The Python stays the **reference spec** (its tests validate
-the C++ behaves identically), and the desktop app becomes the **book loader**.
+where that pays off. The original Python lives on the
+[`main`](../../../tree/main) branch and stays the **reference spec** (its tests
+validate the C++ behaves identically); the desktop app is the **book loader**.
 
 ## Target stack
 - **Board:** Waveshare ESP32-S3-Touch-AMOLED-2.41

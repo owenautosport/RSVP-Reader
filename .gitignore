@@ -1,29 +1,23 @@
-# Python
+# Firmware (PlatformIO)
+.pio/
+firmware/.pio/
+
+# Host build of the engine tests
+*.o
+*.out
+/test_engine
+
+# 3D / case build outputs
+*.stl
+*.3mf
+AppDir/
+
+# Leftover desktop-app artifacts (this branch is device-only)
 __pycache__/
 *.py[cod]
-*.egg-info/
-.eggs/
 build/
 dist/
-.venv/
-venv/
-env/
-
-# Packaging output
 /installer/
-*.dmg
-*.spec.bak
-
-# Test / tooling caches
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
 
 # macOS
 .DS_Store
-
-# Local user data (books the user adds, app state/config)
-/library/
-*.local.json

@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=RSVP Pocket Reader
-Comment=A quiet, offline RSVP speed reader
-Exec=AppRun
-Icon=rsvp-pocket-reader
-Categories=Office;Viewer;
-Terminal=false
