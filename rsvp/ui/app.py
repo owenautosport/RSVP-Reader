@@ -822,6 +822,11 @@ class RsvpApp:
             return  # silent on auto-check: no nagging when offline or current
         if release.version == self._notified_version:
             return  # already nudged about this release; show it at most once
+        if self.engine.is_playing:
+            # Don't steal focus mid-read with a modal grab. Leave the version
+            # un-notified and re-check shortly, so it appears once they pause.
+            self.root.after(60000, self._auto_check_updates)
+            return
         self._notified_version = release.version
         self._save_settings()
         self._show_update_dialog(release)

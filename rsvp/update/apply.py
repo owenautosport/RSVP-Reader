@@ -94,17 +94,31 @@ class MacApplier:
 
     def apply(self, installer_path: Path) -> None:
         dmg = str(installer_path)
-        app = self._app or "/Applications/RSVP Pocket E-Reader.app"
+        # Guard the rm -rf target: never delete a guessed/blank path. We must be
+        # replacing an actual .app bundle that we positively identified — no
+        # hardcoded fallback path to rm -rf blindly.
+        app = self._app
+        if not app or not app.endswith(".app"):
+            raise RuntimeError(f"refusing to self-update: no valid .app target ({app!r})")
         pid = os.getpid()
+        # The dmg and app paths are untrusted (the dmg filename derives from the
+        # release asset name). Pass them as positional args ($1 / $2) instead of
+        # interpolating into the script text, so a path containing shell
+        # metacharacters or quotes can never inject commands.
         script = (
-            f'while kill -0 {pid} 2>/dev/null; do sleep 0.3; done; '
-            f'MNT=$(hdiutil attach -nobrowse "{dmg}" | grep -o "/Volumes/.*" | head -1); '
-            f'SRC=$(find "$MNT" -maxdepth 1 -name "*.app" | head -1); '
-            f'rm -rf "{app}"; cp -R "$SRC" "{app}"; '
-            f'xattr -dr com.apple.quarantine "{app}" 2>/dev/null; '
-            f'hdiutil detach "$MNT" 2>/dev/null; open "{app}"'
+            'while kill -0 "$3" 2>/dev/null; do sleep 0.3; done; '
+            'MNT=$(hdiutil attach -nobrowse "$1" | grep -o "/Volumes/.*" | head -1); '
+            'SRC=$(find "$MNT" -maxdepth 1 -name "*.app" | head -1); '
+            # Don't remove the installed app unless the DMG actually contains a
+            # replacement bundle — otherwise a malformed image would leave nothing.
+            '[ -n "$SRC" ] || { hdiutil detach "$MNT" 2>/dev/null; exit 1; }; '
+            'rm -rf "$2"; cp -R "$SRC" "$2"; '
+            'xattr -dr com.apple.quarantine "$2" 2>/dev/null; '
+            'hdiutil detach "$MNT" 2>/dev/null; open "$2"'
         )
-        self._run(["/bin/sh", "-c", script])
+        # sh -c <script> <argv0> <args...>: argv0 ("rsvp-update") fills $0, then
+        # dmg/app/pid land in $1/$2/$3.
+        self._run(["/bin/sh", "-c", script, "rsvp-update", dmg, app, str(pid)])
         self._exit()
 
 

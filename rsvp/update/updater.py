@@ -7,6 +7,9 @@ and the network/filesystem effects stay at the edges.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import logging
 import platform
 from pathlib import Path
 from typing import Callable
@@ -15,12 +18,28 @@ from .assets import choose_asset
 from .release import GithubReleaseProvider, Release, ReleaseProvider
 from .version import is_newer
 
+_log = logging.getLogger(__name__)
+
 ProgressFn = Callable[[int, int], None]  # (bytes_done, bytes_total)
 
 
 class NoAssetError(Exception):
     """This release has no installer for the running OS; caller should fall back
     to opening the release page for a manual download."""
+
+
+class IntegrityError(Exception):
+    """The downloaded installer's SHA-256 didn't match GitHub's published asset
+    digest; the bytes are not what the release promised, so we refuse to apply."""
+
+
+def _sha256_file(path: Path) -> str:
+    """Hex SHA-256 of a file, read in chunks (installers are a few MB)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(64 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 class Updater:
@@ -51,6 +70,9 @@ class Updater:
         release = self._provider.latest()
         if release is None:
             return ("offline", None)
+        # Stable channel: never offer prereleases as an update.
+        if release.prerelease:
+            return ("current", release)
         if is_newer(self._current, release.version):
             return ("update", release)
         return ("current", release)
@@ -68,4 +90,19 @@ class Updater:
         if asset is None:
             raise NoAssetError(release.version)
         path: Path = self._downloader.download(asset.url, progress=progress)
+        # Verify the bytes against GitHub's published per-asset digest. Older
+        # releases may not carry one — then we can't verify, so we log a note and
+        # proceed (the https/host allowlist still constrains where bytes came from).
+        if asset.digest.startswith("sha256:"):
+            expected = asset.digest.split(":", 1)[1].strip().lower()
+            actual = _sha256_file(path)
+            if not hmac.compare_digest(expected, actual):
+                raise IntegrityError(
+                    f"installer digest mismatch for {asset.name}: "
+                    f"expected {expected}, got {actual}")
+        else:
+            # No digest published; integrity couldn't be verified (the https +
+            # GitHub-host allowlist still constrains where the bytes came from).
+            _log.warning("update: asset %r has no sha256 digest; skipping integrity check",
+                         asset.name)
         self._applier.apply(path)

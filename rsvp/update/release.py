@@ -22,6 +22,7 @@ class Asset:
     name: str
     url: str
     size: int = 0
+    digest: str = ""  # e.g. "sha256:<hexdigest>"; absent on older releases
 
 
 @dataclass(frozen=True)
@@ -44,7 +45,9 @@ def parse_release(data: dict) -> Release:
         url = raw.get("browser_download_url")
         if not url:
             continue
-        assets.append(Asset(name=raw.get("name", ""), url=url, size=int(raw.get("size", 0) or 0)))
+        assets.append(Asset(name=raw.get("name", ""), url=url,
+                            size=int(raw.get("size", 0) or 0),
+                            digest=str(raw.get("digest") or "")))
     return Release(
         version=str(data.get("tag_name") or ""),
         notes=str(data.get("body") or ""),

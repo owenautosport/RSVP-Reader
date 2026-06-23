@@ -47,6 +47,18 @@ class ParseReleaseTests(unittest.TestCase):
     def test_prerelease_flag_preserved(self):
         self.assertTrue(parse_release(_gh(prerelease=True)).prerelease)
 
+    def test_digest_parsed_when_present(self):
+        r = parse_release(_gh(assets=[
+            {"name": "a.exe", "browser_download_url": "https://x/a", "digest": "sha256:abc123"},
+        ]))
+        self.assertEqual(r.assets[0].digest, "sha256:abc123")
+
+    def test_digest_empty_when_absent(self):
+        r = parse_release(_gh(assets=[
+            {"name": "a.exe", "browser_download_url": "https://x/a"},
+        ]))
+        self.assertEqual(r.assets[0].digest, "")
+
 
 if __name__ == "__main__":
     unittest.main()

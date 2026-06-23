@@ -66,11 +66,39 @@ class MacApplierTests(unittest.TestCase):
         ap = MacApplier(
             runner=lambda cmd: calls.setdefault("cmd", cmd),
             exiter=lambda: calls.setdefault("exited", True),
+            app_path="/Applications/RSVP.app",
         )
         ap.apply(Path("/tmp/RSVP-macOS.dmg"))
-        joined = " ".join(calls["cmd"])
-        self.assertIn("/tmp/RSVP-macOS.dmg", joined)
+        # dmg is passed as a positional arg, not interpolated into the script.
+        self.assertIn("/tmp/RSVP-macOS.dmg", calls["cmd"])
         self.assertTrue(calls["exited"])
+
+    def test_malicious_dmg_path_is_not_injected_into_command(self):
+        calls = {}
+        ap = MacApplier(
+            runner=lambda cmd: calls.setdefault("cmd", cmd),
+            exiter=lambda: None,
+            app_path="/Applications/RSVP.app",
+        )
+        # A maliciously named asset: shell metacharacters + a double quote.
+        evil = '/tmp/x";rm -rf ~;echo ".dmg'
+        ap.apply(Path(evil))
+        # The dmg is referenced verbatim as its own argv entry (safe)...
+        self.assertIn(evil, calls["cmd"])
+        # ...but the script text must NOT contain the injected payload, i.e. the
+        # value is never spliced into the /bin/sh -c script string.
+        script = calls["cmd"][2]
+        self.assertNotIn("rm -rf ~", script)
+        self.assertNotIn(evil, script)
+
+    def test_refuses_when_no_valid_app_target(self):
+        ap = MacApplier(
+            runner=lambda cmd: None,
+            exiter=lambda: None,
+            app_path="",  # no determinable .app bundle
+        )
+        with self.assertRaises(Exception):
+            ap.apply(Path("/tmp/RSVP-macOS.dmg"))
 
 
 if __name__ == "__main__":

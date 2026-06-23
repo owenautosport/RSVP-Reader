@@ -12,7 +12,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
-from ..update.updater import NoAssetError
+from ..update.updater import IntegrityError, NoAssetError
 
 # Match the app's quiet dark palette.
 _BG = "#111111"
@@ -116,7 +116,9 @@ class UpdateDialog:
         self._close()
 
     def _open_page(self) -> None:
-        if self.release.html_url:
+        # Only ever open the releases page on github.com — never hand an
+        # arbitrary URL from the releases payload to the user's browser.
+        if self.release.html_url.startswith("https://github.com/"):
             webbrowser.open(self.release.html_url)
         self._close()
 
@@ -143,6 +145,11 @@ class UpdateDialog:
             self._queue.put(("close",))
         except NoAssetError:
             self._queue.put(("fail", "No installer is available for your system."))
+        except IntegrityError:
+            # The download didn't match GitHub's published checksum — possible
+            # tampering or a corrupt download. Don't retry into the same bytes.
+            self._queue.put(("fail", "The downloaded update failed a security check "
+                                     "and was not installed."))
         except Exception:
             self._queue.put(("fail", "The update couldn't be applied."))
 

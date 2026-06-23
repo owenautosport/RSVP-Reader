@@ -1,8 +1,17 @@
+import hashlib
+import logging
+import tempfile
 import unittest
 from pathlib import Path
 
 from rsvp.update.release import Asset, Release
-from rsvp.update.updater import NoAssetError, Updater
+from rsvp.update.updater import IntegrityError, NoAssetError, Updater
+
+
+def setUpModule():
+    # The no-digest path logs a warning by design; silence it so test output
+    # stays clean (real errors still surface).
+    logging.getLogger("rsvp.update.updater").setLevel(logging.ERROR)
 
 
 class FakeProvider:
@@ -16,15 +25,20 @@ class FakeProvider:
 
 
 class FakeDownloader:
-    def __init__(self):
+    def __init__(self, content=None):
         self.downloaded = None
         self.progress_seen = False
+        self._content = content  # if set, writes real bytes so a digest can be checked
 
     def download(self, url, progress=None):
         self.downloaded = url
         if progress:
             progress(50, 100)
             self.progress_seen = True
+        if self._content is not None:
+            fd, tmp = tempfile.mkstemp(prefix="rsvp-test-")
+            Path(tmp).write_bytes(self._content)
+            return Path(tmp)
         return Path("/tmp/downloaded-installer")
 
 
@@ -102,6 +116,47 @@ class DownloadAndApplyTests(unittest.TestCase):
         with self.assertRaises(NoAssetError):
             up.download_and_apply(rel)
         self.assertIsNone(ap.applied)
+
+
+class IntegrityTests(unittest.TestCase):
+    def _setup(self, content, digest):
+        asset = Asset("RSVP-Setup.exe", "https://x/setup.exe", digest=digest)
+        rel = _release(assets=[asset])
+        prov = FakeProvider(rel)
+        dl = FakeDownloader(content=content)
+        ap = FakeApplier()
+        up = Updater(current_version="1.0.0", provider=prov,
+                     downloader=dl, applier=ap, system="Windows")
+        return up, rel, ap
+
+    def test_matching_digest_applies(self):
+        payload = b"installer-bytes"
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        up, rel, ap = self._setup(payload, digest)
+        up.download_and_apply(rel)
+        self.assertIsNotNone(ap.applied)
+
+    def test_mismatched_digest_raises_and_does_not_apply(self):
+        up, rel, ap = self._setup(b"installer-bytes", "sha256:" + "0" * 64)
+        with self.assertRaises(IntegrityError):
+            up.download_and_apply(rel)
+        self.assertIsNone(ap.applied)
+
+    def test_missing_digest_still_applies(self):
+        up, rel, ap = self._setup(b"installer-bytes", "")
+        up.download_and_apply(rel)
+        self.assertIsNotNone(ap.applied)
+
+
+class PrereleaseTests(unittest.TestCase):
+    def test_prerelease_is_not_offered_as_update(self):
+        rel = Release(version="v2.0.0", prerelease=True,
+                      assets=[Asset("RSVP-Setup.exe", "https://x/setup.exe")])
+        up, _, _, _ = _updater(rel)
+        state, returned = up.status()
+        self.assertEqual(state, "current")  # newer, but prerelease → not offered
+        self.assertIs(returned, rel)
+        self.assertIsNone(up.check())
 
 
 if __name__ == "__main__":
