@@ -127,7 +127,7 @@ device  → hardware/ (README BOM, ORDER.md, case.scad) + firmware/ (C++ engine 
 ## 6a. Desktop self-update (post-1.0, on `main`)
 
 Added an in-app updater so released desktop versions can update themselves
-(`1.1.0-beta`). Designed deliberately around the offline promise: a new
+(`1.1.0`). Designed deliberately around the offline promise: a new
 `rsvp/update/` package is the *only* code in the project that opens a socket —
 one anonymous read of the public GitHub `releases/latest` (no token, account, or
 telemetry). The pocket device ships no updater and stays fully offline.
