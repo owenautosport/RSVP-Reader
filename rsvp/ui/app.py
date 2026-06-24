@@ -45,6 +45,7 @@ from ..battery import read_battery
 from ..nav import Button, Menu, MenuItem, Navigator, Screen, Swipe
 from ..update.apply import can_self_apply, get_applier
 from ..update.updater import Updater
+from .layout import reading_font_size, word_font_size
 from .update_dialog import UpdateDialog, show_message
 from ..store import Store, book_key
 
@@ -1077,8 +1078,26 @@ class RsvpApp:
     # -- rendering -------------------------------------------------------
 
     def _render(self) -> None:
+        self._apply_scale()
         self._render_content()
         self._update_battery()
+
+    def _apply_scale(self) -> None:
+        """Scale the reading fonts to the current window so the word — and the
+        read-normally paragraph — grow and shrink as the window is resized."""
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        if w < 10 or h < 10:
+            return  # canvas not laid out yet; the first <Configure> will size it
+        # Only reconfigure when the size actually changes — a resize drag fires
+        # many <Configure> events, and re-setting the font needlessly reflows the
+        # read-normally Text overlay.
+        word = word_font_size(w, h)
+        if word != self._word_font.cget("size"):
+            self._word_font.config(size=word)
+        reading = reading_font_size(w, h)
+        if reading != self._reading_font.cget("size"):
+            self._reading_font.config(size=reading)
 
     # -- battery indicator ----------------------------------------------
 
