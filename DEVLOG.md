@@ -169,6 +169,16 @@ tests), reviewed and re-verified by independent code + security agents:
 This was the first feature run through the agent-orchestrated review gate
 (`~/.claude/CLAUDE.md`) — which is exactly what caught the integrity gap.
 
+## 6c. Window-responsive text scaling (`1.1.2`)
+
+The reading text now scales with the window. The big RSVP word and the
+read-normally paragraph grow/shrink in proportion to the window size, limited by
+the tighter dimension so long words still fit, and clamped (word 24–200pt,
+paragraph 12–40pt) to stay legible small and sane large. The 640x340 baseline
+still renders at 56pt, and menu/status chrome stays fixed. The scaling math is a
+pure, tk-free `rsvp/ui/layout.py` (unit-tested); `_apply_scale` applies it in
+`_render` on each `<Configure>`, skipping no-op reconfigures. Reviewed: ship.
+
 ## 7. Where to pick up
 
 1. Order the parts (`hardware/ORDER.md`).
