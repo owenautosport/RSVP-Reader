@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Preferences.h>
+#include <SD_MMC.h>
 #include <map>
 #include "fonts/FreeSans9pt7b.h"
 #include "fonts/FreeSans12pt7b.h"
@@ -46,8 +47,20 @@ Arduino_GFX *gfx = canvas;
 Ft6336 touch(TP_SDA, TP_SCL, TP_RST);
 
 RsvpEngine engine;
-const char *BOOK_TITLE = "Sample";
+std::string g_title = "Sample";                        // current book title (status line)
+struct Chapter { int idx; std::string title; };
+std::vector<Chapter> g_chapters;
+std::string g_posKey = "pos";                          // NVS key for this book's position
+bool g_sdOk = false;
 uint32_t lastTick = 0, holdMs = 200;
+
+static const char *SAMPLE =
+    "The quick brown fox jumps over the lazy dog. Reading one word at a time, "
+    "centered, lets your eyes stay still while the words come to you. This is "
+    "rapid serial visual presentation, running on the little screen in your hand. "
+    "Tap to start or stop, swipe up or down to change speed, swipe right for the "
+    "menu, and swipe left to read it as a paragraph. Swiping up and down here "
+    "scrolls the whole text, and tapping any word jumps the reader to it.";
 int W, H;
 bool paragraph = false;
 int g_paraScroll = 0, g_paraContentH = 0, g_curWordAbsY = 0;
@@ -65,20 +78,68 @@ int menuSteps()  { return ANIM_MENU[g_animLevel]; }
 // persisted settings + reading position (NVS flash)
 Preferences prefs;
 bool g_orp = true;                                     // ORP pivot highlight on/off
-int g_brightLevel = 3;                                 // backlight level index
-const int BRIGHT_PCT[] = {20, 45, 70, 100};
+int g_brightLevel = 9;                                 // backlight level index (10% steps)
+const int BRIGHT_PCT[] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+const int BRIGHT_N = 10;
+
+// battery + auto-off (Phase E)
+#define BAT_ADC 9
+int g_battPct = -1;                                    // -1 = no battery / USB only
+const char *AUTOOFF_NAMES[] = {"Never", "1 min", "5 min", "15 min"};
+const int AUTOOFF_MIN[] = {0, 1, 5, 15};
+int g_autoOffIdx = 0;
+uint32_t g_lastActivity = 0;
+bool g_sleeping = false, g_swallow = false;
+
+std::vector<uint16_t> g_wordW;                          // cached paragraph word pixel widths
+void buildWordWidths();
+// caps so a malformed/huge .rsvp can't exhaust memory or hang the device
+static const size_t MAX_WORDS = 120000;
+static const size_t MAX_WORD_LEN = 48;
+static const int MAX_CHAPTERS = 2000;
+static const int MAX_HEADER_LINES = 6000;
+static const int MAX_LINE_LEN = 512;
+static const int MAX_LIBRARY = 200;
 
 void applyBrightness() { ledcWrite(TFT_BL, BRIGHT_PCT[g_brightLevel] * 255 / 100); }
+
+// battery: read GPIO9 (assume 2:1 divider); -1 if no/implausible cell (USB only)
+int batteryRead() {
+    uint32_t mv = (uint32_t)analogReadMilliVolts(BAT_ADC) * 2;
+    if (mv < 2700 || mv > 4400) return -1;     // below ~2.7V there's effectively no usable cell
+    int pct = ((int)mv - 3300) * 100 / 900;
+    return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+}
+void drawBatteryIcon(int x, int y, int pct) {
+    const int w = 30, h = 14;
+    uint16_t col = (pct <= 20) ? RGB565(0xff, 0x3b, 0x30) : C_PIVOT;
+    gfx->drawRect(x, y, w, h, C_DIM);
+    gfx->fillRect(x + w, y + 4, 2, 6, C_DIM);            // terminal nub
+    int fillw = pct * (w - 4) / 100;
+    if (fillw > 0) gfx->fillRect(x + 2, y + 2, fillw, h - 4, col);
+    // percentage on top, like iPhone (built-in 6x8 font fits)
+    gfx->setFont(NULL);
+    gfx->setTextSize(1);
+    gfx->setTextColor(C_FG);
+    char b[5]; snprintf(b, sizeof(b), "%d", pct);
+    int tw = (int)strlen(b) * 6;
+    gfx->setCursor(x + (w - tw) / 2, y + (h - 8) / 2);
+    gfx->print(b);
+}
+void sleepNow() { g_sleeping = true; ledcWrite(TFT_BL, 0); }   // backlight off
+void wakeUp()   { g_sleeping = false; applyBrightness(); }     // panel content is retained
 
 void loadSettings() {
     prefs.begin("rsvp", true);
     engine.setWpm(prefs.getInt("wpm", 300));
     g_orp = prefs.getBool("orp", true);
-    g_brightLevel = prefs.getInt("bright", 3);
+    g_brightLevel = prefs.getInt("bright", 9);
     g_animLevel = prefs.getInt("anim", 1);
+    g_autoOffIdx = prefs.getInt("aoff", 0);
     prefs.end();
-    if (g_brightLevel < 0 || g_brightLevel > 3) g_brightLevel = 3;
+    if (g_brightLevel < 0 || g_brightLevel >= BRIGHT_N) g_brightLevel = 9;
     if (g_animLevel < 0 || g_animLevel > 2) g_animLevel = 1;
+    if (g_autoOffIdx < 0 || g_autoOffIdx > 3) g_autoOffIdx = 0;
 }
 void saveSettings() {
     prefs.begin("rsvp", false);
@@ -86,10 +147,135 @@ void saveSettings() {
     prefs.putBool("orp", g_orp);
     prefs.putInt("bright", g_brightLevel);
     prefs.putInt("anim", g_animLevel);
+    prefs.putInt("aoff", g_autoOffIdx);
     prefs.end();
 }
-void savePos() { prefs.begin("rsvp", false); prefs.putInt("pos", engine.index()); prefs.end(); }
-int loadPos() { prefs.begin("rsvp", true); int p = prefs.getInt("pos", 0); prefs.end(); return p; }
+void savePos() { prefs.begin("rsvp", false); prefs.putInt(g_posKey.c_str(), engine.index()); prefs.end(); }
+int loadPos() { prefs.begin("rsvp", true); int p = prefs.getInt(g_posKey.c_str(), 0); prefs.end(); return p; }
+
+// ---------- books from microSD (.rsvp) ----------
+std::string posKeyFor(const std::string &name) {           // short, NVS-safe per-book key
+    uint32_t h = 2166136261u;
+    for (char c : name) { h ^= (uint8_t)c; h *= 16777619u; }
+    char k[12]; snprintf(k, sizeof(k), "p%08x", (unsigned)h);
+    return std::string(k);
+}
+bool sdBegin() {
+    SD_MMC.setPins(38, 40, 39, 41, 48, 47);                // CLK,CMD,D0,D1,D2,D3
+    if (SD_MMC.begin("/sdcard", false)) return true;        // 4-bit
+    SD_MMC.setPins(38, 40, 39);
+    return SD_MMC.begin("/sdcard", true);                   // 1-bit fallback
+}
+// read one line up to '\n'/EOF, but never more than MAX_LINE_LEN chars (extra discarded)
+String readLineCapped(File &f) {
+    String s;
+    while (f.available()) {
+        int c = f.read();
+        if (c < 0 || c == '\n') break;
+        if ((int)s.length() < MAX_LINE_LEN) s += (char)c;   // bounded; rest of an over-long line is dropped
+    }
+    return s;
+}
+// device-side tokenize with hard caps on count and per-word length (untrusted input)
+std::vector<std::string> tokenizeCapped(const std::string &text) {
+    std::vector<std::string> w;
+    size_t i = 0, n = text.size();
+    while (i < n && w.size() < MAX_WORDS) {
+        while (i < n && (unsigned char)text[i] <= ' ') i++;
+        size_t s = i;
+        while (i < n && (unsigned char)text[i] > ' ') i++;
+        if (i > s) { size_t len = i - s; if (len > MAX_WORD_LEN) len = MAX_WORD_LEN; w.push_back(text.substr(s, len)); }
+    }
+    return w;
+}
+
+std::string readTitle(const std::string &path) {
+    File f = SD_MMC.open(path.c_str()); if (!f) return "";
+    std::string title;
+    for (int i = 0; i < 50 && f.available(); i++) {
+        String ln = readLineCapped(f); ln.trim();
+        if (ln == "B") break;
+        if (ln.startsWith("T\t")) { title = ln.substring(2).c_str(); break; }
+    }
+    f.close(); return title;
+}
+void resetReader(const std::string &title, const std::string &key) {
+    g_title = title.empty() ? "Book" : title;
+    g_posKey = key;
+    int p = loadPos();
+    if (p > 0 && p < engine.totalWords()) engine.seekTo(p);
+    engine.pause();
+}
+void loadSample() {
+    engine.load(tokenizeCapped(SAMPLE));
+    g_chapters.clear();
+    buildWordWidths();
+    resetReader("Sample", "pos");
+}
+bool loadBookFromSD(const std::string &path) {
+    File f = SD_MMC.open(path.c_str()); if (!f) return false;
+    g_chapters.clear();
+    std::string title;
+    int headerLines = 0;
+    while (f.available() && headerLines++ < MAX_HEADER_LINES) {   // header lines up to "B" (bounded)
+        String t = readLineCapped(f); t.trim();
+        if (t == "RSVP1" || t.length() == 0) continue;
+        if (t == "B") break;
+        if (t.startsWith("T\t")) title = t.substring(2).c_str();
+        else if (t.startsWith("C\t") && (int)g_chapters.size() < MAX_CHAPTERS) {
+            int a = t.indexOf('\t'), b = t.indexOf('\t', a + 1);
+            if (b > 0) g_chapters.push_back({(int)t.substring(a + 1, b).toInt(), std::string(t.substring(b + 1).c_str())});
+        }
+    }
+    std::string body;
+    const size_t CAP = 2 * 1024 * 1024;
+    uint8_t buf[2048];
+    while (f.available() && body.size() < CAP) {
+        int n = f.read(buf, sizeof(buf)); if (n <= 0) break;
+        body.append((char *)buf, n);
+    }
+    f.close();
+    engine.load(tokenizeCapped(body));
+    body.clear(); body.shrink_to_fit();                          // free the body before building widths
+    buildWordWidths();
+    resetReader(title, posKeyFor(path));
+    Serial.printf("[RSVP] loaded %s: %d words, %d chapters\n", path.c_str(), engine.totalWords(), (int)g_chapters.size());
+    return engine.totalWords() > 0;
+}
+
+std::vector<MenuItem> buildLibraryItems() {
+    std::vector<MenuItem> items;
+    items.push_back(MenuItem("b:sample", "Sample (built-in)"));
+    if (g_sdOk) {
+        File root = SD_MMC.open("/");
+        if (root) {
+            int count = 0;
+            for (File e = root.openNextFile(); e && count < MAX_LIBRARY; e = root.openNextFile()) {
+                count++;
+                std::string n = e.name();
+                size_t sl = n.find_last_of('/'); std::string base = (sl == std::string::npos) ? n : n.substr(sl + 1);
+                if (!e.isDirectory() && base.size() > 5 && base.substr(base.size() - 5) == ".rsvp") {
+                    std::string path = "/" + base;
+                    std::string title = readTitle(path); if (title.empty()) title = base;
+                    items.push_back(MenuItem("f:" + path, title));
+                }
+                e.close();
+            }
+            root.close();
+        }
+    } else {
+        items.push_back(MenuItem("nosd", "(no SD card)", false));
+    }
+    items.push_back(MenuItem("back", "Back"));
+    return items;
+}
+std::vector<MenuItem> buildChapterItems() {
+    std::vector<MenuItem> items;
+    if (g_chapters.empty()) items.push_back(MenuItem("none", "(no chapters)", false));
+    else for (auto &c : g_chapters) { char id[16]; snprintf(id, sizeof(id), "%d", c.idx); items.push_back(MenuItem(id, c.title)); }
+    items.push_back(MenuItem("back", "Back"));
+    return items;
+}
 
 struct WordHit { int x, y, w, h, idx; };
 std::vector<WordHit> g_paraHits;
@@ -102,14 +288,6 @@ std::map<Screen, Menu> g_menus = {
     {Screen::Settings, Menu()}, {Screen::Stats, Menu()}, {Screen::About, Menu()},
 };
 Navigator nav(g_menus);
-
-static const char *SAMPLE =
-    "The quick brown fox jumps over the lazy dog. Reading one word at a time, "
-    "centered, lets your eyes stay still while the words come to you. This is "
-    "rapid serial visual presentation, running on the little screen in your hand. "
-    "Tap to start or stop, swipe up or down to change speed, swipe right for the "
-    "menu, and swipe left to read it as a paragraph. Swiping up and down here "
-    "scrolls the whole text, and tapping any word jumps the reader to it.";
 
 void drawRoundOutline(int x, int y, int w, int h, int r, uint16_t c) {
     gfx->drawRoundRect(x, y, w, h, r, c);
@@ -133,13 +311,17 @@ void drawReadingCanvas() {
     gfx->setFont(&FreeSans9pt7b);
     gfx->setTextColor(C_DIM);
     gfx->setCursor(4, 15);
-    gfx->print(BOOK_TITLE);
+    gfx->print(g_title.c_str());
+    int rightX = W - 4;
+    if (g_battPct >= 0) { drawBatteryIcon(W - 36, 3, g_battPct); rightX = W - 42; }
     char r[28];
     snprintf(r, sizeof(r), "%d%%  %d wpm %s", (int)(engine.progress() * 100),
              engine.wpm(), engine.isPlaying() ? ">" : "||");
+    gfx->setFont(&FreeSans9pt7b);                       // reset (battery icon used the small font)
+    gfx->setTextColor(C_DIM);
     int16_t bx, by; uint16_t bw, bh;
     gfx->getTextBounds(r, 0, 0, &bx, &by, &bw, &bh);
-    gfx->setCursor(W - (int)bw - 4, 15);
+    gfx->setCursor(rightX - (int)bw, 15);
     gfx->print(r);
 
     std::string w = engine.currentWord();
@@ -266,6 +448,16 @@ void drawInfoCanvas(Screen s) {
     }
 }
 
+// precompute paragraph word widths once per book (avoids per-frame getTextBounds while scrolling)
+void buildWordWidths() {
+    g_wordW.clear();
+    const auto &ws = engine.words();
+    g_wordW.reserve(ws.size());
+    gfx->setFont(&FreeSans18pt7b);
+    int16_t bx, by; uint16_t bw, bh;
+    for (const auto &wd : ws) { gfx->getTextBounds(wd.c_str(), 0, 0, &bx, &by, &bw, &bh); g_wordW.push_back(bw); }
+}
+
 // ---------- paragraph (scrollable; current word = filled orange box, dark text) ----------
 void buildParagraph(bool draw) {
     if (draw) gfx->fillScreen(C_BG);
@@ -275,24 +467,23 @@ void buildParagraph(bool draw) {
     int cur = engine.index();
     int margin = 8, x = margin, lineH = 36, spaceW = 7, absY = 28;
     const int boxH = 30;                       // uniform box, < lineH so it never overlaps the line below
+    bool haveW = g_wordW.size() == ws.size();
     for (size_t i = 0; i < ws.size(); i++) {
-        const std::string &wd = ws[i];
-        int16_t gx, gy; uint16_t gw, gh;
-        gfx->getTextBounds(wd.c_str(), 0, 0, &gx, &gy, &gw, &gh);
-        if (x + (int)gw > W - margin) { x = margin; absY += lineH; }
+        int gw = haveW ? g_wordW[i] : (int)(ws[i].size() * 10);   // cached width (cheap)
+        if (x + gw > W - margin) { x = margin; absY += lineH; }
         if ((int)i == cur) g_curWordAbsY = absY;
         int screenY = absY - g_paraScroll;
         if (draw && screenY > -lineH && screenY < H + lineH) {
             int boxTop = screenY - 23;          // even box centred on the line
             if ((int)i == cur) {
-                gfx->fillRoundRect(x - 6, boxTop, (int)gw + 12, boxH, 8, C_PIVOT);
+                gfx->fillRoundRect(x - 6, boxTop, gw + 12, boxH, 8, C_PIVOT);
                 gfx->setTextColor(C_BG);
             } else gfx->setTextColor(C_FG);
-            gfx->setCursor(x - gx, screenY);
-            gfx->print(wd.c_str());
-            g_paraHits.push_back({x - 6, boxTop, (int)gw + spaceW + 12, boxH, (int)i});
+            gfx->setCursor(x, screenY);
+            gfx->print(ws[i].c_str());
+            g_paraHits.push_back({x - 6, boxTop, gw + spaceW + 12, boxH, (int)i});
         }
-        x += (int)gw + spaceW;
+        x += gw + spaceW;
     }
     g_paraContentH = absY + lineH;
 }
@@ -341,30 +532,33 @@ void presentSlide(int dir) {
 void transitionTo(int dir) { drawCurrentScreen(); presentSlide(dir); setReadingTiming(); }
 
 // ---------- settings ----------
-void refreshSettings() {
-    Menu &s = g_menus[Screen::Settings];
-    int idx = s.index();
-    char sp[28], pv[28], br[28], an[28];
+std::vector<MenuItem> buildSettingsItems() {
+    char sp[28], pv[28], br[28], an[28], ao[28];
     snprintf(sp, sizeof(sp), "Speed: %d wpm", engine.wpm());
     snprintf(pv, sizeof(pv), "Pivot: %s", g_orp ? "On" : "Off");
     snprintf(br, sizeof(br), "Brightness: %d%%", BRIGHT_PCT[g_brightLevel]);
     snprintf(an, sizeof(an), "Animation: %s", ANIM_NAMES[g_animLevel]);
-    s.setItems({MenuItem("set_speed", sp), MenuItem("set_pivot", pv),
-                MenuItem("set_bright", br), MenuItem("set_anim", an), MenuItem("back", "Back")});
-    s.selectIndex(idx);
+    snprintf(ao, sizeof(ao), "Auto-off: %s", AUTOOFF_NAMES[g_autoOffIdx]);
+    return {MenuItem("set_speed", sp), MenuItem("set_pivot", pv),
+            MenuItem("set_bright", br), MenuItem("set_anim", an),
+            MenuItem("set_autooff", ao), MenuItem("back", "Back")};
 }
-void cycleSpeed() {
-    static const int sp[] = {200, 250, 300, 350, 400, 500}; int n = 6, cur = engine.wpm(), ni = 0, found = -1;
-    for (int i = 0; i < n; i++) if (sp[i] == cur) { found = i; break; }
-    ni = (found < 0) ? 2 : (found + 1) % n;
-    engine.setWpm(sp[ni]);
+// update the navigator's OWN Settings menu in place (keeps the cursor)
+void refreshSettingsMenu() {
+    Menu *m = nav.menu();
+    if (m) { int idx = m->index(); m->setItems(buildSettingsItems()); m->selectIndex(idx); }
+}
+void cycleSpeed() {                                     // Settings: +50 wpm steps, snapped, wraps 100..1000
+    int w = (engine.wpm() / 50) * 50 + 50;
+    if (w > 1000) w = 100;
+    engine.setWpm(w);
 }
 
 void doAct(const std::string &id) {
     if (id == "resume") nav.goReading();
-    else if (id == "library") nav.open(Screen::Library);
-    else if (id == "chapters") nav.open(Screen::Chapters);
-    else if (id == "settings") { refreshSettings(); nav.open(Screen::Settings); }
+    else if (id == "library") { if (!g_sdOk) g_sdOk = sdBegin(); nav.open(Screen::Library, buildLibraryItems()); }
+    else if (id == "chapters") nav.open(Screen::Chapters, buildChapterItems());
+    else if (id == "settings") nav.open(Screen::Settings, buildSettingsItems());
     else if (id == "stats") nav.open(Screen::Stats);
     else if (id == "about") nav.open(Screen::About);
 }
@@ -398,23 +592,33 @@ void onRelease() {
     Screen s = nav.screen();
     if (s == Screen::Reading) {
         if (tap) { engine.toggle(); savePos(); showCurrent(); }
-        else if (vert) { engine.adjustWpm(dy < 0 ? +25 : -25); saveSettings(); showCurrent(); }
-        else if (dx > 0) { engine.pause(); savePos(); snapshot(); nav.open(Screen::Menu); transitionTo(-1); }
-        else { engine.pause(); savePos(); snapshot(); paragraph = true; enterParagraph(); transitionTo(+1); }
+        else if (vert) { engine.adjustWpm(dy < 0 ? +25 : -25); showCurrent(); }   // persist on leave, not per-swipe (NVS wear)
+        else if (dx > 0) { engine.pause(); savePos(); saveSettings(); snapshot(); nav.open(Screen::Menu); transitionTo(-1); }
+        else { engine.pause(); savePos(); saveSettings(); snapshot(); paragraph = true; enterParagraph(); transitionTo(+1); }
     } else if (isMenuScreen()) {
         Menu *m = nav.menu();
         if (tap) {
             const MenuItem *c = m->current();
-            if (c) {
+            if (c && c->enabled) {
                 std::string id = c->id;
-                if (id == "set_anim" || id == "set_speed" || id == "set_pivot" || id == "set_bright") {
+                if (id == "set_anim" || id == "set_speed" || id == "set_pivot" || id == "set_bright" || id == "set_autooff") {
                     if (id == "set_anim") g_animLevel = (g_animLevel + 1) % 3;
                     else if (id == "set_speed") cycleSpeed();
                     else if (id == "set_pivot") g_orp = !g_orp;
-                    else if (id == "set_bright") { g_brightLevel = (g_brightLevel + 1) % 4; applyBrightness(); }
-                    saveSettings(); refreshSettings(); renderScreen();
+                    else if (id == "set_bright") { g_brightLevel = (g_brightLevel + 1) % BRIGHT_N; applyBrightness(); }
+                    else if (id == "set_autooff") g_autoOffIdx = (g_autoOffIdx + 1) % 4;
+                    saveSettings(); refreshSettingsMenu(); renderScreen();
                 }
                 else if (id == "back") { snapshot(); nav.back(); transitionTo(-1); }
+                else if (nav.screen() == Screen::Library) {
+                    if (id == "b:sample") loadSample();
+                    else if (id.rfind("f:", 0) == 0) loadBookFromSD(id.substr(2));
+                    snapshot(); nav.goReading(); transitionTo(+1);
+                }
+                else if (nav.screen() == Screen::Chapters) {
+                    engine.seekTo(atoi(id.c_str())); savePos();
+                    snapshot(); nav.goReading(); transitionTo(+1);
+                }
                 else { snapshot(); doAct(id); transitionTo(+1); }
             }
         } else if (vert) {
@@ -427,7 +631,9 @@ void onRelease() {
 void pollTouch() {
     uint16_t rx, ry;
     if (touch.readRaw(rx, ry)) {
+        g_lastActivity = millis();
         int sx, sy; mapTouch(rx, ry, sx, sy);
+        if (g_sleeping) { wakeUp(); down = true; downX = lastX = sx; downY = lastY = sy; g_swallow = true; return; }
         if (!down) { down = true; downX = lastX = sx; downY = lastY = sy; g_scrollVel = 0; g_dragVel = 0; }
         else {
             if (paragraph && sy != lastY) {
@@ -438,7 +644,7 @@ void pollTouch() {
             }
             lastX = sx; lastY = sy;
         }
-    } else if (down) { down = false; onRelease(); }
+    } else if (down) { down = false; if (g_swallow) { g_swallow = false; return; } onRelease(); }
 }
 
 void setup() {
@@ -453,20 +659,35 @@ void setup() {
     if (!g_compbuf) g_compbuf = (uint16_t *)ps_malloc(sz);
     touch.begin();
 
-    engine.load(tokenize(SAMPLE));
     loadSettings();                            // wpm, orp, brightness, animation from flash
     applyBrightness();
-    int p = loadPos();                         // resume reading position
-    if (p > 0 && p < engine.totalWords()) engine.seekTo(p);
-    engine.pause();                            // start paused — tap to begin
-    refreshSettings();
-    Serial.printf("[RSVP] Phase C: %d words, pos=%d, buf=%s\n", engine.totalWords(),
-                  engine.index(), (g_oldbuf && g_compbuf) ? "ok" : "FAIL");
+    g_sdOk = sdBegin();                         // mount microSD (SDIO)
+    loadSample();                              // default book (sets pos/pause)
+    g_battPct = batteryRead();
+    g_lastActivity = millis();
+    Serial.printf("[RSVP] Phase E: SD=%s, %d words, pos=%d, buf=%s\n",
+                  g_sdOk ? "ok" : "none", engine.totalWords(), engine.index(),
+                  (g_oldbuf && g_compbuf) ? "ok" : "FAIL");
     renderScreen();
 }
 
 void loop() {
     pollTouch();
+
+    // battery poll (~10s) — refresh the icon when reading & idle
+    static uint32_t lastBat = 0;
+    if (millis() - lastBat > 10000) {
+        lastBat = millis();
+        int prev = g_battPct; g_battPct = batteryRead();
+        if (!g_sleeping && !paragraph && nav.screen() == Screen::Reading && g_battPct != prev) renderScreen();
+    }
+    // auto-off: sleep when paused + idle past the chosen timeout
+    if (!g_sleeping && AUTOOFF_MIN[g_autoOffIdx] > 0 && !engine.isPlaying() &&
+        (millis() - g_lastActivity) > (uint32_t)AUTOOFF_MIN[g_autoOffIdx] * 60000UL) {
+        sleepNow();
+    }
+    if (g_sleeping) { delay(20); return; }   // nothing else to do while asleep
+
     // momentum scroll in the paragraph view (after a flick release)
     if (paragraph && !down && (g_scrollVel > 0.8f || g_scrollVel < -0.8f)) {
         int before = g_paraScroll;
